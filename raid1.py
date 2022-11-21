@@ -47,6 +47,7 @@ def store_file(file_data: bytes, send_task_socket, response_socket):
 
     # Wait until we receive 4 responses from the workers
     for task_nbr in range(4):
+        # TODO does this block?
         resp = response_socket.recv_string()
         print('Received: %s' % resp)
     
