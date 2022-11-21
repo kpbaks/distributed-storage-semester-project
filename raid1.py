@@ -1,10 +1,11 @@
 import messages_pb2
 import math
 import random
+import sys
 
 from utils import random_string
 
-def store_file(file_data, send_task_socket, response_socket):
+def store_file(file_data: bytes, send_task_socket, response_socket):
     """
     Implements storing a file with RAID 1 using 4 storage nodes.
 
@@ -14,17 +15,17 @@ def store_file(file_data, send_task_socket, response_socket):
     :return: A list of the random generated chunk names, e.g. (c1,c2), (c3,c4)
     """
 
-    size = len(file_data)
+    size: int = len(file_data)
 
     # RAID 1: cut the file in half and store both halves 2x
-    file_data_1 = file_data[:math.ceil(size/2.0)]
-    file_data_2 = file_data[math.ceil(size/2.0):]
+    file_data_1: bytes = file_data[:math.ceil(size/2.0)]
+    file_data_2: bytes = file_data[math.ceil(size/2.0):]
 
     # Generate two random chunk names for each half
     file_data_1_names = [random_string(8), random_string(8)]
     file_data_2_names = [random_string(8), random_string(8)]
-    print("Filenames for part 1: %s" % file_data_1_names)
-    print("Filenames for part 2: %s" % file_data_2_names)
+    print("Filenames for part 1: %s" % file_data_1_names, file=sys.stderr)
+    print("Filenames for part 2: %s" % file_data_2_names, file=sys.stderr)
 
     # Send 2 'store data' Protobuf requests with the first half and chunk names
     for name in file_data_1_names:

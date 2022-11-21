@@ -1,8 +1,9 @@
 import random
 import string
 import os
+from typing import Optional
 
-def random_string(length=8):
+def random_string(length:int = 8) -> str:
     """
     Returns a random alphanumeric string of the given length. 
     Only lowercase ascii letters and numbers are used.
@@ -13,7 +14,7 @@ def random_string(length=8):
     return ''.join([random.SystemRandom().choice(string.ascii_letters + string.digits) for n in range(length)])
 #
 
-def write_file(data, filename=None):
+def write_file(data: bytes, filename: Optional[str] = None) -> Optional[str]:
     """
     Write the given data to a local file with the given filename
 
@@ -31,7 +32,7 @@ def write_file(data, filename=None):
         # Open filename for writing binary content ('wb')
         # note: when a file is opened using the 'with' statment, 
         # it is closed automatically when the scope ends
-        with open('./'+filename, 'wb') as f:
+        with open(f'./{filename}', 'wb') as f:
             f.write(data)
     except EnvironmentError as e:
         print("Error writing file: {}".format(e))
@@ -40,7 +41,7 @@ def write_file(data, filename=None):
     return filename
 #
 
-def is_raspberry_pi():
+def is_raspberry_pi() -> bool:
     """
     Returns True if the current platform is a Raspberry Pi, otherwise False.
     """
