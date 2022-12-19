@@ -9,6 +9,11 @@ import base64
 import random
 import string
 import logging
+import os
+import sys
+import argparse
+from typing import List, Dict, Tuple, Any, Union, Optional, Callable
+
 
 import zmq # For ZMQ
 import time # For waiting a second for ZMQ connections
@@ -70,6 +75,28 @@ repair_response_socket.bind("tcp://*:5561")
 # Wait for all workers to start and connect. 
 time.sleep(1)
 print("Listening to ZMQ messages on tcp://*:5558 and tcp://*:5561")
+
+
+
+name_of_this_script: str = os.path.basename(__file__)
+parser = argparse.ArgumentParser(prog=name_of_this_script)
+
+
+storage_modes: List[str] = ['raid1', 'erasure_coding_rs', 'erasure_coding_rlnc']
+
+parser.add_argument('-k', '--replicas', choices=[2,3,4], type=int, help='Number of fragments to store')
+parser.add_argument('-l', '--node-losses', type=int, choices=[1,2], help='Number of fragments to recover')
+parser.add_argument('-m', '--mode', type=str, required=True, choices=storage_modes, help='Mode of operation: raid1, erasure_coding_rs, erasure_coding_rlnc')
+
+
+args = parser.parse_args()
+
+if args.replicas:
+    k = args.replicas
+if args.node_losses:
+    l = args.node_losses
+
+
 
 
 # Instantiate the Flask app (must be before the endpoint functions)
