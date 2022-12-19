@@ -140,8 +140,8 @@ def download_file(file_id):
     # Convert to a Python dictionary
     f = dict(f)
     from pprint import pp
-    pp(f)
-    print("File requested: {}".format(f['filename']))
+    #pp(f)
+    #print("File requested: {}".format(f['filename']))
     
     # Parse the storage details JSON string
     import json
