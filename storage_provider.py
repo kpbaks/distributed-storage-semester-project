@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Any
 
 class StorageProvider(ABC):
     @abstractmethod
@@ -6,6 +7,6 @@ class StorageProvider(ABC):
         pass
 
     @abstractmethod
-    def store_file(self, key, value):
+    def store_file(self, key, value) -> Any | None:
         pass
 

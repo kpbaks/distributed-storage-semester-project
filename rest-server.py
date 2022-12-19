@@ -15,6 +15,9 @@ import argparse
 from typing import List, Dict, Tuple, Any, Union, Optional, Callable
 
 
+from raid1 import Raid1StorageProvider
+from reedsolomon import ReedSolomonStorageProvider
+
 import zmq # For ZMQ
 import time # For waiting a second for ZMQ connections
 import math # For cutting the file in half
@@ -81,7 +84,6 @@ print("Listening to ZMQ messages on tcp://*:5558 and tcp://*:5561")
 name_of_this_script: str = os.path.basename(__file__)
 parser = argparse.ArgumentParser(prog=name_of_this_script)
 
-
 storage_modes: List[str] = ['raid1', 'erasure_coding_rs', 'erasure_coding_rlnc']
 
 parser.add_argument('-k', '--replicas', choices=[2,3,4], type=int, help='Number of fragments to store')
@@ -137,51 +139,72 @@ def download_file(file_id):
 
     # Convert to a Python dictionary
     f = dict(f)
+    from pprint import pp
+    pp(f)
     print("File requested: {}".format(f['filename']))
     
     # Parse the storage details JSON string
     import json
-    storage_details = json.loads(f['storage_details'])
+    storage_details = f['storage_details']
 
-    if f['storage_mode'] == 'raid1':
-        
-        part1_filenames = storage_details['part1_filenames']
-        part2_filenames = storage_details['part2_filenames']
+    match args.mode:
+        case 'raid1':
+            filenames = storage_details.split(',')
+            assert len(filenames) == 4, f"Invalid number of filenames, is {len(filenames)} but should be 4"
+            part1_filenames = filenames[:2]
+            part2_filenames = filenames[2:]
 
-        file_data = raid1.get_file(
-            part1_filenames, 
-            part2_filenames, 
-            data_req_socket, 
-            response_socket
-        )
-
-    elif f['storage_mode'] == 'erasure_coding_rs':
-        
-        coded_fragments = storage_details['coded_fragments']
-        max_erasures = storage_details['max_erasures']
-
-        file_data = reedsolomon.get_file(
-            coded_fragments,
-            max_erasures,
-            f['size'],
-            data_req_socket, 
-            response_socket
-        )
-        
-    elif f['storage_mode'] == 'erasure_coding_rlnc':
-        
-        coded_fragments = storage_details['coded_fragments']
-        max_erasures = storage_details['max_erasures']
-
-        file_data = rlnc.get_file(
-            coded_fragments,
-            max_erasures,
-            f['size'],
-            data_req_socket, 
-            response_socket
-        )
+            provider = Raid1StorageProvider(send_task_socket, response_socket, data_req_socket)
+            file_data = provider.get_file(part1_filenames, part2_filenames)
+        case 'erasure_coding_rs':
+            pass
+        case 'erasure_coding_rlnc':
+            pass
+        case _:
+            return make_response({"message": "Invalid storage mode"}, 500)
 
     return send_file(io.BytesIO(file_data), mimetype=f['content_type'])
+
+
+    # if f['storage_mode'] == 'raid1':
+        
+    #     part1_filenames = storage_details['part1_filenames']
+    #     part2_filenames = storage_details['part2_filenames']
+
+    #     file_data = raid1.get_file(
+    #         part1_filenames, 
+    #         part2_filenames, 
+    #         data_req_socket, 
+    #         response_socket
+    #     )
+
+    # elif f['storage_mode'] == 'erasure_coding_rs':
+        
+    #     coded_fragments = storage_details['coded_fragments']
+    #     max_erasures = storage_details['max_erasures']
+
+    #     file_data = reedsolomon.get_file(
+    #         coded_fragments,
+    #         max_erasures,
+    #         f['size'],
+    #         data_req_socket, 
+    #         response_socket
+    #     )
+        
+    # elif f['storage_mode'] == 'erasure_coding_rlnc':
+        
+    #     coded_fragments = storage_details['coded_fragments']
+    #     max_erasures = storage_details['max_erasures']
+
+    #     file_data = rlnc.get_file(
+    #         coded_fragments,
+    #         max_erasures,
+    #         f['size'],
+    #         data_req_socket, 
+    #         response_socket
+    #     )
+
+    # return send_file(io.BytesIO(file_data), mimetype=f['content_type'])
 #
 
 # HTTP HEAD requests are served by the GET endpoint of the same URL,
@@ -316,24 +339,38 @@ def add_files_multipart():
 @app.route('/files', methods=['POST'])
 def add_files():
     payload = request.get_json()
-    filename = payload.get('filename')
-    content_type = payload.get('content_type')
-    file_data = base64.b64decode(payload.get('contents_b64'))
-    size = len(file_data)
+    filename: str = payload.get('filename')
+    content_type: str = payload.get('content_type')
+    file_data: bytes = base64.b64decode(payload.get('contents_b64'))
+    filesize: int = len(file_data)
 
-    file_data_1_names, file_data_2_names = raid1.store_file(file_data, send_task_socket, response_socket)
+    match args.mode:
+        case 'raid1':
+            provider = raid1.Raid1StorageProvider(send_task_socket, response_socket, data_req_socket)
+            file_data_1_names, file_data_2_names = provider.store_file(file_data)
+            storage_details = ','.join(file_data_1_names + file_data_2_names)
+        case 'erasure_coding_rs':
+            pass
+        case 'erasure_coding_rlnc':
+            pass
+        case _:
+            logging.error(f"Unexpected storage mode: {args.mode}")
+            return make_response("Wrong storage mode", 400)
+        
+
+    # file_data_1_names, file_data_2_names = raid1.store_file(file_data, send_task_socket, response_socket)
     
     # Insert the File record in the DB
     db = get_db()
     cursor = db.execute(
-        "INSERT INTO `file`(`filename`, `size`, `content_type`, `part1_filenames`, `part2_filenames`) VALUES (?,?,?,?,?)",
-        (filename, size, content_type, ','.join(file_data_1_names), ','.join(file_data_2_names))
+        "INSERT INTO `file`(`filename`, `size`, `content_type`, `storage_mode`, `storage_details`) VALUES (?,?,?,?,?)",
+        (filename, filesize, content_type, args.mode, storage_details)
     )
     db.commit()
 
     # Return the ID of the new file record with HTTP 201 (Created) status code
     return make_response({"id": cursor.lastrowid }, 201)
-#
+
 
 @app.route('/services/rlnc_repair',  methods=['GET'])
 def rlnc_repair():
