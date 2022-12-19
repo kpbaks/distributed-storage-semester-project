@@ -131,7 +131,7 @@ class Raid1StorageProvider(StorageProvider):
 
         print("Both chunks received successfully")
 
-        pp(file_data_parts)
+        #pp(file_data_parts)
         
         # Combine the parts and return
         file_data = file_data_parts[0] + file_data_parts[1]
