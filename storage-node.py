@@ -6,10 +6,23 @@ import os
 import random
 import string
 import argparse
+import logging
 
 import rlnc
 
 from utils import random_string, write_file, is_raspberry_pi
+
+logger = logging.getLogger("rest-server")
+
+# see if DEBUG is defined as an env var
+if os.environ.get("DEBUG"):
+    logger.setLevel(logging.DEBUG)
+else:
+    logger.setLevel(logging.INFO)
+
+logger.info(f"log level is {logger.getEffectiveLevel()}")
+
+
 
 parser = argparse.ArgumentParser(description='Storage node')
 parser.add_argument('data_folder', type=str, help='Folder where chunks should be stored')
@@ -18,7 +31,7 @@ args = parser.parse_args()
 
 # check if folder exists, else create it
 if not os.path.exists(args.data_folder):
-    print(f"Folder {args.data_folder} does not exist, creating it", file=sys.stderr)
+    logger.info(f"Folder {args.data_folder} does not exist, creating it", file=sys.stderr)
     os.makedirs(args.data_folder)
 
 

@@ -91,7 +91,7 @@ logger.info("Listening to ZMQ messages on tcp://*:5558 and tcp://*:5561")
 name_of_this_script: str = os.path.basename(__file__)
 parser = argparse.ArgumentParser(prog=name_of_this_script)
 
-storage_modes: List[str] = ["raid1", "erasure_coding_rs", "erasure_coding_rlnc"]
+storage_modes: List[str] = ["raid1", "erasure_coding_rs", "erasure_coding_rlnc", "fake-hdfs"]
 
 parser.add_argument(
     "-k", "--replicas", choices=[2, 3, 4], type=int, help="Number of fragments to store"
@@ -178,6 +178,8 @@ def download_file(file_id: int):
                 send_task_socket, response_socket, data_req_socket
             )
             file_data = provider.get_file(part1_filenames, part2_filenames)
+        case "fake-hdfs":
+            pass
         case "erasure_coding_rs":
             pass
         case "erasure_coding_rlnc":
