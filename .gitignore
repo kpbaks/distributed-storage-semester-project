@@ -170,3 +170,6 @@ cython_debug/
 storage*
 **/*.o
 .DS_Store*
+
+# do not share kodo .so between different machines
+*.so
