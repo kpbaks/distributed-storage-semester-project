@@ -12,26 +12,26 @@ layout {
 	pane split_direction="vertical" {
 		pane {
 			command "python"
-			args "storage-node.py" "storage0"
-			name "storage0"
+			args "storage-node.py" "storage-node0"
+			name "storage-node0"
 			close_on_exit true
 		}
 		pane {
 			command "python"
-			args "storage-node.py" "storage1"
-			name "storage1"
+			args "storage-node.py" "storage-node1"
+			name "storage-node1"
 			close_on_exit true
 		}
 		pane {
 			command "python"
-			args "storage-node.py" "storage2"
-			name "storage2"
+			args "storage-node.py" "storage-node2"
+			name "storage-node2"
 			close_on_exit true
 		}
 		pane {
 			command "python"
-			args "storage-node.py" "storage3"
-			name "storage3"
+			args "storage-node.py" "storage-node3"
+			name "storage-node3"
 			close_on_exit true
 		}
 	}

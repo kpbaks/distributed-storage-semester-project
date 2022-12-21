@@ -167,7 +167,7 @@ cython_debug/
 
 *.0
 
-storage*
+node*
 **/*.o
 .DS_Store*
 
