@@ -155,7 +155,6 @@ def receiver_action(subscriber: zmq.Socket, sender: zmq.Socket) -> None:
     # Send response (just the file name)
     sender.send_string(task.filename)
 
-
 # This function is called when a message is received on the subscriber socket
 def subscriber_action(subscriber: zmq.Socket, sender: zmq.Socket) -> None:
     # Incoming message on the 'subscriber' socket where we get retrieve requests
