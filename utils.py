@@ -1,7 +1,11 @@
 import random
 import string
 import os
-from typing import Optional
+from typing import Optional, List, Any, Iterable
+import time
+
+random.seed(time.time())
+
 
 def random_string(length:int = 8) -> str:
     """
@@ -47,3 +51,20 @@ def is_raspberry_pi() -> bool:
     """
     return os.uname().nodename == 'raspberrypi'
 #
+
+def remove_duplicate_from_list(lst: List[Any]) -> List[Any]:
+    """
+    Returns a new list with duplicate elements removed.
+    """
+    assert isinstance(lst, list), "The given argument is not a list, but a {}".format(type(lst))
+    return list(set(lst))
+
+
+def flatten_list(lst: List[Iterable[Any]]) -> List[Any]:
+    """
+    Returns a new list with all elements of the given list flattened.
+    """
+    assert isinstance(lst, list), "The given argument is not a list, but a {}".format(
+        type(lst)
+    )
+    return [item for sublist in lst for item in sublist]

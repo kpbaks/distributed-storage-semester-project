@@ -5,5 +5,6 @@ CREATE TABLE `file` (
    `content_type` TEXT,
    `storage_mode` TEXT,
    `storage_details` TEXT,
+   `hash` TEXT,
    `created` DATETIME DEFAULT CURRENT_TIMESTAMP
 );

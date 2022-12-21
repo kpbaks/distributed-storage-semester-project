@@ -18,6 +18,10 @@ import time  # For waiting a second for ZMQ connections
 from pprint import pp
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+from hashlib import sha256
+
+import itertools as it
+
 import zmq  # For ZMQ
 # from apscheduler.schedulers.background import \
 #     BackgroundScheduler  # automated repair
@@ -27,51 +31,9 @@ import messages_pb2  # Generated Protobuf messages
 import rlnc
 from raid1 import Raid1StorageProvider
 from reedsolomon import ReedSolomonStorageProvider
-from utils import is_raspberry_pi
+from utils import is_raspberry_pi, flatten_list
 
-name_of_this_script: str = os.path.basename(__file__)
-parser = argparse.ArgumentParser(prog=name_of_this_script)
-
-storage_modes: List[str] = [
-    "raid1",
-    "erasure_coding_rs",
-    "erasure_coding_rlnc",
-    "fake-hdfs",
-]
-
-parser.add_argument(
-    "-k", "--replicas", choices=[2, 3, 4], type=int, help="Number of fragments to store"
-)
-parser.add_argument(
-    "-l",
-    "--node-losses",
-    type=int,
-    choices=[1, 2],
-    help="Number of fragments to recover",
-)
-parser.add_argument(
-    "-m",
-    "--mode",
-    type=str,
-    required=True,
-    choices=storage_modes,
-    help="Mode of operation: raid1, erasure_coding_rs, erasure_coding_rlnc",
-)
-
-DEFAULT_PORT = 5557
-
-parser.add_argument(
-    "-p",
-    "--port",
-    type=int,
-    required=False,
-    default=DEFAULT_PORT,
-    help=f"port to start from. > 1023. default={DEFAULT_PORT}",
-)
-
-
-args = parser.parse_args()
-
+import uuid
 
 def get_db(filename: str = "files.db") -> sqlite3.Connection:
     """Get a database connection. Create it if it doesn't exist."""
@@ -91,60 +53,88 @@ def close_db(e=None) -> None:
         db.close()
 
 
-logger = logging.getLogger("rest-server")
+logger = logging.getLogger(__name__)
+YELLOW = "\033[93m"
+NC = "\033[0m"  # No Color
+# formatter = logging.Formatter('[%(levelname)s: %(asctime)s](%(name)s) - %(message)s')
+format: str = f"[{YELLOW}%(levelname)s{NC}] (%(name)s) - %(message)s"
 
-# see if DEBUG is defined as an env var
+        
 if os.environ.get("DEBUG"):
-    logger.setLevel(logging.DEBUG)
+    logging.basicConfig(level=logging.DEBUG, format=format)
 else:
-    logger.setLevel(logging.INFO)
+    logging.basicConfig(level=logging.INFO, format=format)
 
 logger.info(f"log level is {logger.getEffectiveLevel()}")
 
-
-# -------------------------------------------------------------------------------------------------
 logger.info("Initializing ZMG sockets ...")
 # Initiate ZMQ sockets
 context = zmq.Context()
 
 # Socket to send tasks to Storage Nodes
-# a zmg.PUSH socket is used to send messages to one or more zmg.PULL sockets
-# in a round robin fashion
-send_task_socket: zmq.Socket = context.socket(zmq.PUSH)
-send_task_socket.bind(f"tcp://*:{args.port}")
+send_task_socket = context.socket(zmq.PUSH)
+send_task_socket.bind("tcp://*:5557")
 
 # Socket to receive messages from Storage Nodes
-# a zmg.PULL socket is used to receive messages from one or more zmg.PUSH sockets
-# in a fair queue fashion
-response_socket: zmq.Socket = context.socket(zmq.PULL)
-response_socket.bind(f"tcp://*:{args.port + 1}")
+response_socket = context.socket(zmq.PULL)
+response_socket.bind("tcp://*:5558")
 
 # Publisher socket for data request broadcasts
-data_req_socket: zmq.Socket = context.socket(zmq.PUB)
-data_req_socket.bind(f"tcp://*:{args.port + 2}")
+data_req_socket = context.socket(zmq.PUB)
+data_req_socket.bind("tcp://*:5559")
 
 # Publisher socket for fragment repair broadcasts
-repair_socket: zmq.Socket = context.socket(zmq.PUB)
-repair_socket.bind(f"tcp://*:{args.port + 3}")
+repair_socket = context.socket(zmq.PUB)
+repair_socket.bind("tcp://*:5560")
 
 # Socket to receive repair messages from Storage Nodes
-repair_response_socket: zmq.Socket = context.socket(zmq.PULL)
-repair_response_socket.bind(f"tcp://*:{args.port + 4}")
+repair_response_socket = context.socket(zmq.PULL)
+repair_response_socket.bind("tcp://*:5561")
 
 logger.info("Initializing ZMG sockets ... DONE")
 # Wait for all workers to start and connect.
 time.sleep(1)
-logger.info(
-    f"Listening to ZMQ messages on tcp://*:{args.port + 1} and tcp://*:{args.port + 4}"
+logger.info("Listening to ZMQ messages on tcp://*:5558 and tcp://*:5561")
+
+
+name_of_this_script: str = os.path.basename(__file__)
+parser = argparse.ArgumentParser(prog=name_of_this_script)
+
+storage_modes: List[str] = ["raid1", "erasure_coding_rs", "erasure_coding_rlnc", "fake-hdfs"]
+
+parser.add_argument(
+    "-k", "--replication-factor", choices=[2, 3, 4], type=int, help="Number of fragments to store"
+)
+parser.add_argument(
+    "-l",
+    "--node-losses",
+    type=int,
+    choices=[1, 2],
+    help="Number of fragments to recover",
+)
+parser.add_argument(
+    "-m",
+    "--mode",
+    type=str,
+    required=True,
+    choices=storage_modes,
+    help="Mode of operation: raid1, erasure_coding_rs, erasure_coding_rlnc",
 )
 
 
-# -------------------------------------------------------------------------------------------------
+args = parser.parse_args()
+
+
 logger.debug("Instantiating Flask app")
 # Instantiate the Flask app (must be before the endpoint functions)
 app = Flask(__name__)
 # Close the DB connection after serving the request
 app.teardown_appcontext(close_db)
+
+
+# @app.route("/")
+# def hello():
+#     return make_response({"message": "Hello World!"})
 
 
 @app.route("/files", methods=["GET"])
@@ -164,9 +154,7 @@ def list_files():
 
 @app.route("/files/<int:file_id>", methods=["GET"])
 def download_file(file_id: int):
-    logger.info(
-        f"Received request to download file {file_id}. Storage mode is {args.mode}"
-    )
+    logger.info(f"Received request to download file {file_id}. Storage mode is {args.mode}")
 
     db = get_db()
     cursor = db.execute("SELECT * FROM `file` WHERE `id`=?", [file_id])
@@ -175,30 +163,31 @@ def download_file(file_id: int):
         logger.error(error_msg)
         return make_response({"message": error_msg}, 500)
 
-    f = cursor.fetchone()
-    if not f:
+    database_row = cursor.fetchone()
+    if not database_row:
         error_msg: str = "File {} not found".format(file_id)
         logger.error(error_msg)
         return make_response({"message": error_msg}, 404)
 
     # Convert to a Python dictionary
-    f = dict(f)
+    database_row = dict(database_row)
 
-    storage_details = f["storage_details"]
+    storage_details = database_row["storage_details"]
 
     match args.mode:
         case "raid1":
-            filenames = storage_details.split(",")
-            assert (
-                len(filenames) == 4
-            ), f"Invalid number of filenames, is {len(filenames)} but should be 4"
-            part1_filenames = filenames[:2]
-            part2_filenames = filenames[2:]
+            list_of_stripe_uids = storage_details.split(",")
+            replication_factor = math.sqrt(len(list_of_stripe_uids))
+            assert replication_factor.is_integer() and replication_factor in [2, 3, 4], "Invalid number of fragments"
+            replication_factor = int(replication_factor)
+            # reshape the list of filenames into a 2D array of size (replication_factor, replication_factor)
+            list_of_stripe_uids = [list_of_stripe_uids[i:i + replication_factor] for i in range(0, len(list_of_stripe_uids), replication_factor)]
+            pp(f"list_of_stripe_uids {list_of_stripe_uids}")
 
             provider = Raid1StorageProvider(
-                send_task_socket, response_socket, data_req_socket
+                replication_factor, send_task_socket, response_socket, data_req_socket
             )
-            file_data = provider.get_file(part1_filenames, part2_filenames)
+            file_data = provider.get_file(list_of_stripe_uids)
         case "fake-hdfs":
             pass
         case "erasure_coding_rs":
@@ -209,9 +198,12 @@ def download_file(file_id: int):
             error_msg: str = "Invalid storage mode"
             logger.error(error_msg)
             return make_response({"message": error_msg}, 500)
+    
+    file_hash: str = sha256(file_data).hexdigest() # This is the hash of the file that is reconstructed
+    assert file_hash == database_row["hash"], "File hash mismatch"
 
     logger.info(f"File {file_id} downloaded successfully")
-    return send_file(io.BytesIO(file_data), mimetype=f["content_type"])
+    return send_file(io.BytesIO(file_data), mimetype=database_row["content_type"])
 
 
 # if f['storage_mode'] == 'raid1':
@@ -278,9 +270,6 @@ def get_file_metadata(file_id: int):
     return make_response(f)
 
 
-#
-
-
 # @app.route("/files/<int:file_id>", methods=["DELETE"])
 # def delete_file(file_id):
 
@@ -303,6 +292,8 @@ def get_file_metadata(file_id: int):
 
 #     # Return empty 200 Ok response
 #     return make_response("TODO: implement this endpoint", 404)
+
+
 
 
 # @app.route("/files_mp", methods=["POST"])
@@ -397,22 +388,32 @@ def get_file_metadata(file_id: int):
 #     return make_response({"id": cursor.lastrowid}, 201)
 
 
+
+
 @app.route("/files", methods=["POST"])
 def add_files():
-    """Add a new file to the storage system"""
-    payload = request.get_json()
+    """ Add a new file to the storage system """
+    payload: Any | None = request.get_json()
     filename: str = payload.get("filename")
     content_type: str = payload.get("content_type")
     file_data: bytes = base64.b64decode(payload.get("contents_b64"))
     filesize: int = len(file_data)
+    uid: uuid.UUID = uuid.uuid4()
 
     match args.mode:
         case "raid1":
-            provider = Raid1StorageProvider(
+            provider = Raid1StorageProvider(args.replication_factor,
                 send_task_socket, response_socket, data_req_socket
             )
-            file_data_1_names, file_data_2_names = provider.store_file(file_data)
-            storage_details: str = ",".join(file_data_1_names + file_data_2_names)
+            list_of_stripe_names = provider.store_file(file_data)
+
+            # storage_details: str = ",".join(flatten_list(list_of_stripe_names))
+            storage_details: str = ""
+            for i, stripe_names in enumerate(list_of_stripe_names):
+                for j, _ in enumerate(stripe_names):
+                    storage_details += f"{uid}.{i}.{j};"
+            logger.debug(f"Storage details: {storage_details}")
+
         case "erasure_coding_rs":
             pass
         case "erasure_coding_rlnc":
@@ -421,11 +422,15 @@ def add_files():
             logging.error(f"Unexpected storage mode: {args.mode}")
             return make_response("Wrong storage mode", 400)
 
+    file_hash: str = sha256(file_data).hexdigest()
+    logger.debug(f"File hash: {file_hash}")
+
     db = get_db()
     cursor = db.execute(
-        "INSERT INTO `file`(`filename`, `size`, `content_type`, `storage_mode`, `storage_details`) VALUES (?,?,?,?,?)",
-        (filename, filesize, content_type, args.mode, storage_details),
+        "INSERT INTO `file`(`filename`, `size`, `content_type`, `storage_mode`, `storage_details`, `hash`) VALUES (?,?,?,?,?,?)",
+        (filename, filesize, content_type, args.mode, storage_details, file_hash),
     )
+
     db.commit()
 
     # Return the ID of the new file record with HTTP 201 (Created) status code

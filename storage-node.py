@@ -11,13 +11,17 @@ import messages_pb2
 import rlnc
 from utils import is_raspberry_pi, random_string, write_file
 
-logger = logging.getLogger(__name__)
+# formatter = logging.Formatter('[%(levelname)s: %(asctime)s](%(name)s) - %(message)s')
+format: str = "[%(levelname)s] (%(name)s) - %(message)s"
 
 # see if DEBUG is defined as an env var
 if os.environ.get("DEBUG"):
-    logger.setLevel(logging.DEBUG)
+    logging.basicConfig(level=logging.DEBUG, format=format)
 else:
-    logger.setLevel(logging.INFO)
+    logging.basicConfig(level=logging.INFO, format=format)
+
+logger = logging.getLogger(__name__)
+
 
 logger.info(f"log level is {logger.getEffectiveLevel()}")
 

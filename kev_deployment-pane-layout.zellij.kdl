@@ -7,6 +7,7 @@ layout {
 		close_on_exit false
 		start_suspended false
 		name "rest-server"
+		size "75%"
 	}
 	pane split_direction="vertical" {
 		pane {

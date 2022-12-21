@@ -6,12 +6,15 @@ import sys
 from pprint import pp
 from typing import List, Tuple
 import logging
+import itertools as it
+
+
 
 import zmq
 
 import messages_pb2
 from storage_provider import StorageProvider
-from utils import random_string
+from utils import random_string, remove_duplicate_from_list
 
 class Raid1StorageProvider(StorageProvider):
     """
@@ -49,144 +52,106 @@ class Raid1StorageProvider(StorageProvider):
         # used to request data from the storage nodes in the get_file method
         self.data_req_socket = data_req_socket
 
-        self.logger = logging.getLogger("Raid1StorageProvider")
+        self.logger = logging.getLogger("raid1_storage_provider")
+        
         if os.environ.get("DEBUG"):
             self.logger.setLevel(logging.DEBUG)
         else:
             self.logger.setLevel(logging.INFO)
 
 
-    def store_file(self, file_data: bytes) -> Tuple[List[str], List[str]]:
+
+    # def store_file(self, file_data: bytes) -> Tuple[List[str], List[str]]:
+    def store_file(self, file_data: bytes) -> List[List[str]]:
         """
         Implements storing a file with RAID 1 using 4 storage nodes.
 
         :param file_data: A bytearray that holds the file contents
-        :return: A list of the random generated chunk names, e.g. (c1,c2), (c3,c4)
+        :return: A list of the random generated stripe names, e.g. (c1,c2), (c3,c4)
         """
 
         file_size: int = len(file_data)
 
         # Split the file into self.replicas evenly sized parts
         part_size: int = math.ceil(file_size / self.replication_factor)
-        parts: List[bytes] = [
+        list_of_stripe_data: List[bytes] = [
             file_data[i : i + part_size] for i in range(0, file_size, part_size)
         ]
 
-        list_of_chunk_names: List[str] = [
-            [random_string(8) for _ in range(self.replication_factor)]
+        list_of_stripe_names: List[List[str]] = [
+            [random_string(16) for _ in range(self.replication_factor)] # TODO: Report - mention that we're not checking for duplicates in the data directory
             for _ in range(self.replication_factor)
         ]
+        
+        self.logger.debug(f"list_of_stripe_names: {list_of_stripe_names}")
 
-        self.logger.debug(f"list_of_chunk_names: {list_of_chunk_names}")
-
-        # Generate random chunk names
-        # part1_filenames: List[str] = [
-        #     random_string() for _ in range(self.replication_factor)
-        # ]
-        # part2_filenames: List[str] = [
-        #     random_string() for _ in range(self.replication_factor)
-        # ]
-
-        # RAID 1: cut the file in half and store both halves 2x
-        # file_data_1: bytes = file_data[: math.ceil(file_size / 2.0)]
-        # file_data_2: bytes = file_data[math.ceil(file_size / 2.0) :]
-
-        # Generate two random chunk names for each half
-        # file_data_1_names: List[str] = [random_string(8), random_string(8)]
-        # file_data_2_names: List[str] = [random_string(8), random_string(8)]
-        # print(f"Filenames for part 1: {file_data_1_names}", file=sys.stderr)
-        # print(f"Filenames for part 2: {file_data_2_names}", file=sys.stderr)
-
-        # Send 2 'store data' Protobuf requests with the first half and chunk names
-        for name in file_data_1_names:
-            task = messages_pb2.storedata_request()
-            task.filename = name
-            self.send_task_socket.send_multipart(
-                [task.SerializeToString(), file_data_1]
-            )
-
-        # Send 2 'store data' Protobuf requests with the second half and chunk names
-        for name in file_data_2_names:
-            task = messages_pb2.storedata_request()
-            task.filename = name
-            self.send_task_socket.send_multipart(
-                [task.SerializeToString(), file_data_2]
-            )
-
-        # when self.replication_factor == 2, we have 2 parts, and have to send 4 requests
-        # when self.replication_factor == 3, we have 3 parts, and have to send 9 requests
-        # when self.replication_factor == 4, we have 4 parts, and have to send 16 requests
+        for stripe_names in list_of_stripe_names:
+            assert len(stripe_names) == len(list_of_stripe_data), f"stripe_names: {stripe_names} must have length {len(list_of_stripe_data)}"
+            for stripe, name in zip(list_of_stripe_data, stripe_names):
+                task = messages_pb2.storedata_request()
+                task.filename = name
+                self.send_task_socket.send_multipart(
+                    [task.SerializeToString(), stripe]
+                )
 
         num_requests: int = self.replication_factor**2
         print(f"Waiting for {num_requests} responses", file=sys.stderr)
 
-        for _ in range(num_requests):
+        # Synchonously wait for the responses
+        for i in range(num_requests):
             resp = self.response_socket.recv_multipart()
-            print(f"Received response: {resp}", file=sys.stderr)
+            print(f"Received response [{i+1}/{num_requests}]: {resp}", file=sys.stderr)
 
-        # Wait until we receive 4 responses from the workers
-        # for _ in range(4):
-        #     # TODO does this block?
-        #     resp = self.response_socket.recv_string()
-        #     print(f"Received: {resp}", file=sys.stderr)
+        pp(list_of_stripe_names)
+        return list_of_stripe_names
 
-        # Return the chunk names of each replica
-        return file_data_1_names, file_data_2_names
 
-    def get_file(self, part1_filenames: List[str], part2_filenames: List[str]) -> bytes:
+    def get_file(self, list_of_stripe_uids: List[List[str]]) -> bytes:
         """
         Implements retrieving a file that is stored with RAID 1 using 4 storage nodes.
 
-        :param part1_filenames: List of chunk names that store the first half
-        :param part2_filenames: List of chunk names that store the second half
-        :param data_req_socket: A ZMQ PUB socket to request chunks from the storage nodes
+        :param part1_filenames: List of stripe names that store the first half
+        :param part2_filenames: List of stripe names that store the second half
+        :param data_req_socket: A ZMQ PUB socket to request stripes from the storage nodes
         :param response_socket: A ZMQ PULL socket where the storage nodes respond.
         :return: The original file contents
         """
-        assert (
-            len(part1_filenames) == 2
-        ), f"part1_filenames must contain 2 filenames, but contains {len(part1_filenames)}"
-        assert (
-            len(part2_filenames) == 2
-        ), f"part2_filenames must contain 2 filenames, but contains {len(part2_filenames)}"
-        # Select one chunk of each half
-        # part1_filename = part1_filenames[random.randint(0, len(part1_filenames)-1)]
-        # part2_filename = part2_filenames[random.randint(0, len(part2_filenames)-1)]
-        part1_filename: str = random.choice(part1_filenames)
-        part2_filename: str = random.choice(part2_filenames)
-        print("Part 1: " + part1_filename)
-        print("Part 2: " + part2_filename)
 
-        # Request both chunks in parallel
-        task1 = messages_pb2.getdata_request()
-        task1.filename = part1_filename
-        self.data_req_socket.send(task1.SerializeToString())
-        task2 = messages_pb2.getdata_request()
-        task2.filename = part2_filename
-        self.data_req_socket.send(task2.SerializeToString())
+        replication_factor = len(list_of_stripe_uids)
+        assert replication_factor in [2,3,4], f"Raid1StorageProvider only supports 2, 3 or 4 replicas, but {replication_factor} were requested"
+        self.logger.info(f"get_file: list_of_stripe_uids: {list_of_stripe_uids}")
 
-        # Receive both chunks and insert them to
-        file_data_parts = [None, None]
-        for _ in range(2):
+        # Select a random stripe from each stripe set
+        stripe_uids_to_request = [random.choice(stripe_uids) for stripe_uids in list_of_stripe_uids]
+        self.logger.debug(f"stripe_uids_to_request: {stripe_uids_to_request}")
+        
+        # Request the stripes in parallel
+        for stripe_uid in stripe_uids_to_request:
+            task = messages_pb2.getdata_request()
+            task.filename = stripe_uid
+            self.data_req_socket.send(task.SerializeToString())
+
+        # Receive all stripes and collect them 
+        file_data_parts = [None] * replication_factor
+        for _ in range(replication_factor):
             result = self.response_socket.recv_multipart()
             # First frame: file name (string)
             filename_received = result[0].decode("utf-8")
+            assert filename_received in stripe_uids_to_request, f"Received unexpected filename {filename_received}"
             # Second frame: data
-            chunk_data = result[1]
+            stripe_data = result[1]
 
-            print("Received %s" % filename_received)
+            self.logger.debug(f"Received {filename_received}")
+            idx: int = stripe_uids_to_request.index(filename_received)
+            self.logger.debug(f"Inserting at index {idx}")
+            assert stripe_uids_to_request[idx] == filename_received, f"stripe_uids_to_request[{idx}] != filename_received"
+            file_data_parts[idx] = stripe_data
 
-            if filename_received == part1_filename:
-                # The first part was received
-                file_data_parts[0] = chunk_data
-            else:
-                # The second part was received
-                file_data_parts[1] = chunk_data
+        
+        assert None not in file_data_parts, "Not all stripes received successfully"
+        self.logger.info("All stripes received successfully")
+        
+        # Concatenates the stripes in one bytes object
+        file_data = b"".join(file_data_parts)
 
-        print("Both chunks received successfully")
-
-        # pp(file_data_parts)
-
-        # Combine the parts and return
-        file_data = file_data_parts[0] + file_data_parts[1]
         return file_data
