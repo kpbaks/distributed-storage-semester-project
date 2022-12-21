@@ -11,4 +11,3 @@ class StorageProvider(ABC):
     @abstractmethod
     def store_file(self, key, value) -> Any | None:
         pass
-
