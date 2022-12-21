@@ -446,6 +446,8 @@ def add_files() -> Response:
 
     db.commit()
 
+    logger.info(f"File stored: {filename}, size: {filesize} bytes, type: {content_type}, with id: {cursor.lastrowid}")
+
     # Return the ID of the new file record with HTTP 201 (Created) status code
     return make_response({"id": cursor.lastrowid}, 201)
 

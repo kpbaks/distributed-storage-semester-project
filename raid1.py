@@ -98,9 +98,6 @@ class Raid1StorageProvider(StorageProvider):
 
         self.logger.debug(f"list_of_storage_ids: {list_of_storage_ids}")
 
-        # for storage_id in storage_ids:
-        #     self.logger.debug(f"storage_id: {storage_id}")
-
 
         for storage_ids in list_of_storage_ids:
             assert len(storage_ids) == len(list_of_stripe_data), f"storage_ids: {storage_ids} must have length {len(list_of_stripe_data)}"
