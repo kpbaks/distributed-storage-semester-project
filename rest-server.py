@@ -25,7 +25,7 @@ import itertools as it
 import zmq  # For ZMQ
 # from apscheduler.schedulers.background import \
 #     BackgroundScheduler  # automated repair
-from flask import Flask, g, make_response, request, send_file
+from flask import Flask, Response, g, make_response, request, send_file
 
 import messages_pb2  # Generated Protobuf messages
 import rlnc
@@ -391,7 +391,7 @@ def get_file_metadata(file_id: int):
 
 
 @app.route("/files", methods=["POST"])
-def add_files():
+def add_files() -> Response:
     """ Add a new file to the storage system """
     payload: Any | None = request.get_json()
     filename: str = payload.get("filename")
