@@ -32,6 +32,7 @@ import rlnc
 from raid1 import Raid1StorageProvider
 from reedsolomon import ReedSolomonStorageProvider
 from utils import is_raspberry_pi, flatten_list
+from storage_id import StorageId
 
 import uuid
 
@@ -408,11 +409,13 @@ def add_files() -> Response:
             list_of_stripe_names = provider.store_file(file_data)
 
             # storage_details: str = ",".join(flatten_list(list_of_stripe_names))
-            storage_details: str = ""
+            storage_ids: List[StorageId] = []
             for i, stripe_names in enumerate(list_of_stripe_names):
                 for j, _ in enumerate(stripe_names):
-                    storage_details += f"{uid}.{i}.{j};"
-            logger.debug(f"Storage details: {storage_details}")
+                    storage_id = StorageId(uid, i, j)
+                    storage_ids.append(storage_id)
+                    # storage_details += f"{uid}.{i}.{j};"
+            logger.debug(f"Storage details: {storage_ids}")
 
         case "erasure_coding_rs":
             pass
@@ -424,6 +427,8 @@ def add_files() -> Response:
 
     file_hash: str = sha256(file_data).hexdigest()
     logger.debug(f"File hash: {file_hash}")
+    storage_details: str = ";".join([str(storage_id) for storage_id in storage_ids])
+    logger.debug(f"Storage details: {storage_details}")
 
     db = get_db()
     cursor = db.execute(
