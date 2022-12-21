@@ -1,15 +1,17 @@
 import math
+import os
+import sys
 import random
 import sys
 from pprint import pp
 from typing import List, Tuple
+import logging
 
 import zmq
 
 import messages_pb2
 from storage_provider import StorageProvider
 from utils import random_string
-
 
 class Raid1StorageProvider(StorageProvider):
     """
@@ -47,6 +49,13 @@ class Raid1StorageProvider(StorageProvider):
         # used to request data from the storage nodes in the get_file method
         self.data_req_socket = data_req_socket
 
+        self.logger = logging.getLogger("Raid1StorageProvider")
+        if os.environ.get("DEBUG"):
+            self.logger.setLevel(logging.DEBUG)
+        else:
+            self.logger.setLevel(logging.INFO)
+
+
     def store_file(self, file_data: bytes) -> Tuple[List[str], List[str]]:
         """
         Implements storing a file with RAID 1 using 4 storage nodes.
@@ -62,27 +71,31 @@ class Raid1StorageProvider(StorageProvider):
         parts: List[bytes] = [
             file_data[i : i + part_size] for i in range(0, file_size, part_size)
         ]
-        assert (
-            len(parts) == self.replication_factor
-        ), f"Expected {self.replication_factor} parts, but got {len(parts)}"
+
+        list_of_chunk_names: List[str] = [
+            [random_string(8) for _ in range(self.replication_factor)]
+            for _ in range(self.replication_factor)
+        ]
+
+        self.logger.debug(f"list_of_chunk_names: {list_of_chunk_names}")
 
         # Generate random chunk names
-        part1_filenames: List[str] = [
-            random_string() for _ in range(self.replication_factor)
-        ]
-        part2_filenames: List[str] = [
-            random_string() for _ in range(self.replication_factor)
-        ]
+        # part1_filenames: List[str] = [
+        #     random_string() for _ in range(self.replication_factor)
+        # ]
+        # part2_filenames: List[str] = [
+        #     random_string() for _ in range(self.replication_factor)
+        # ]
 
         # RAID 1: cut the file in half and store both halves 2x
-        file_data_1: bytes = file_data[: math.ceil(file_size / 2.0)]
-        file_data_2: bytes = file_data[math.ceil(file_size / 2.0) :]
+        # file_data_1: bytes = file_data[: math.ceil(file_size / 2.0)]
+        # file_data_2: bytes = file_data[math.ceil(file_size / 2.0) :]
 
         # Generate two random chunk names for each half
-        file_data_1_names: List[str] = [random_string(8), random_string(8)]
-        file_data_2_names: List[str] = [random_string(8), random_string(8)]
-        print(f"Filenames for part 1: {file_data_1_names}", file=sys.stderr)
-        print(f"Filenames for part 2: {file_data_2_names}", file=sys.stderr)
+        # file_data_1_names: List[str] = [random_string(8), random_string(8)]
+        # file_data_2_names: List[str] = [random_string(8), random_string(8)]
+        # print(f"Filenames for part 1: {file_data_1_names}", file=sys.stderr)
+        # print(f"Filenames for part 2: {file_data_2_names}", file=sys.stderr)
 
         # Send 2 'store data' Protobuf requests with the first half and chunk names
         for name in file_data_1_names:
