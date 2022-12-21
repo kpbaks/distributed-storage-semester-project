@@ -4,7 +4,11 @@ import os
 import random
 import string
 import sys
+import time
+import pathlib
 
+import atexit
+import shutil
 import zmq
 
 import messages_pb2
@@ -12,7 +16,10 @@ import rlnc
 from utils import is_raspberry_pi, random_string, write_file
 
 # formatter = logging.Formatter('[%(levelname)s: %(asctime)s](%(name)s) - %(message)s')
-format: str = "[%(levelname)s] (%(name)s) - %(message)s"
+YELLOW = "\033[93m"
+NC = "\033[0m"  # No Color
+# formatter = logging.Formatter('[%(levelname)s: %(asctime)s](%(name)s) - %(message)s')
+format: str = f"[{YELLOW}%(levelname)s{NC}] (%(name)s) - %(message)s"
 
 # see if DEBUG is defined as an env var
 if os.environ.get("DEBUG"):
@@ -39,20 +46,11 @@ if not os.path.exists(args.data_folder):
     os.makedirs(args.data_folder)
 
 
+DATA_FOLDER = pathlib.Path(args.data_folder)
+
+
+
 MAX_CHUNKS_PER_FILE = 10
-
-
-# Read the folder name where chunks should be stored from the first program argument
-# (or use the current folder if none was given)
-# data_folder = sys.argv[1] if len(sys.argv) > 1 else "./"
-# if data_folder != "./":
-#     # Try to create the folder
-#     try:
-#         os.mkdir('./'+data_folder)
-#     except FileExistsError as _:
-#         # OK, the folder exists
-#         pass
-# print("Data folder: %s" % data_folder)
 
 # Check whether the node has an id. If it doesn't, generate one and save it to disk.
 try:
@@ -132,7 +130,7 @@ def receiver_action(subscriber: zmq.Socket, sender: zmq.Socket) -> None:
         # Incoming message on the 'receiver' socket where we get tasks to store a chunk
         msg = receiver.recv_multipart()
     except zmq.ZMQError as e:
-        print(f"Error receiving message: {e}")
+        logger.error(f"Error receiving message: {e}")
         return
 
     # Parse the Protobuf message from the first frame
@@ -142,17 +140,75 @@ def receiver_action(subscriber: zmq.Socket, sender: zmq.Socket) -> None:
     # The data starts with the second frame, iterate and store all frames
     for i in range(0, len(msg) - 1):
         data = msg[1 + i]
-        print(f"Chunk to save: {task.filename}.{i}, size: {len(data)} bytes")
 
+        # Outcomment to print without chunk index
+        # print(f"Chunk to save: {task.filename}.{i}, size: {len(data)} bytes")
+        print(f"Chunk to save: {task.filename}, size: {len(data)} bytes")
+        
+        logger.debug(f"data: {data}")
+        
         # Store the chunk with the given filename
-        chunk_local_path: str = f"{args.data_folder}/{task.filename}.{i}"
+        chunk_local_path: str = f"{DATA_FOLDER}/{task.filename}"
         if write_file(data, chunk_local_path) is not None:
-            print("Chunk saved to %s" % chunk_local_path)
+            logger.info(f"Chunk saved to {chunk_local_path}")
 
     # Send response (just the file name)
     sender.send_string(task.filename)
 
 
+# This function is called when a message is received on the subscriber socket
+def subscriber_action(subscriber: zmq.Socket, sender: zmq.Socket) -> None:
+    # Incoming message on the 'subscriber' socket where we get retrieve requests
+    msg = subscriber.recv()
+
+    # Parse the Protobuf message from the first frame
+    task = messages_pb2.getdata_request()
+    task.ParseFromString(msg)
+
+    filename = task.filename
+    logger.info("Data chunk request: %s" % filename)
+    #logger.info(f"Data chunk request: {filename}.{i}")
+
+    # Try to load all fragments with this name
+    # First frame is the filename
+    frames = [bytes(filename, "utf-8")]
+    # Subsequent frames will contain the chunks' data
+    
+    # iterate over all files in args.data_folder
+    for i, file in enumerate(DATA_FOLDER.glob("*")):
+        logger.debug(f"Found file [{i}] {file.name}")
+        if file.is_file() and file.name == filename:
+            logger.info(f"Found chunk {filename}, sending it back")
+            frames.append(file.read_bytes())
+
+
+    # for i in range(0, MAX_CHUNKS_PER_FILE):
+    #     try:
+    #         with open(
+    #             args.data_folder + "/" + filename + "." + str(i), "rb"
+    #         ) as in_file:
+    #             print("Found chunk %s, sending it back" % filename)
+    #             # Add chunk as a new frame
+    #             frames.append(in_file.read())
+
+    #     except FileNotFoundError:
+    #         # This is OK here
+    #         break
+
+    # Only send a result if at least one chunk was found
+    if len(frames) > 1:
+        logger.info(f"Sending {len(frames) - 1} chunks back")
+        sender.send_multipart(frames)
+
+
+def nuke_storage_folder() -> None:
+    if os.environ.get("DEBUG") is not None:
+        print("Nuking storage folder...")
+        shutil.rmtree(args.data_folder)
+   
+atexit.register(nuke_storage_folder)
+
+# Main loop -----------------------------------------------------------------------------------------
 while True:
     try:
         # Poll all sockets
@@ -165,41 +221,13 @@ while True:
 
     if receiver in socks:
         # Incoming message on the 'receiver' socket where we get tasks to store a chunk
-        print(f"Received message on receiver socket")
+        logger.info(f"Received message on receiver socket")
         receiver_action(subscriber, sender)
 
     if subscriber in socks:
-        print(f"Received message on subscriber socket")
-        # Incoming message on the 'subscriber' socket where we get retrieve requests
-        msg = subscriber.recv()
+        logger.info(f"Received message on subscriber socket")
+        subscriber_action(subscriber, sender)
 
-        # Parse the Protobuf message from the first frame
-        task = messages_pb2.getdata_request()
-        task.ParseFromString(msg)
-
-        filename = task.filename
-        print("Data chunk request: %s" % filename)
-
-        # Try to load all fragments with this name
-        # First frame is the filename
-        frames = [bytes(filename, "utf-8")]
-        # Subsequent frames will contain the chunks' data
-        for i in range(0, MAX_CHUNKS_PER_FILE):
-            try:
-                with open(
-                    args.data_folder + "/" + filename + "." + str(i), "rb"
-                ) as in_file:
-                    print("Found chunk %s, sending it back" % filename)
-                    # Add chunk as a new frame
-                    frames.append(in_file.read())
-
-            except FileNotFoundError:
-                # This is OK here
-                break
-
-        # Only send a result if at least one chunk was found
-        if len(frames) > 1:
-            sender.send_multipart(frames)
 
     if repair_subscriber in socks:
         print(f"Received message on repair_subscriber socket")
@@ -320,7 +348,8 @@ while True:
 
             # Iterate over stored chunks, replacing missing ones
             for i in range(0, MAX_CHUNKS_PER_FILE):
-                chunk_local_path = args.data_folder + "/" + chunk_name + "." + str(i)
+                # chunk_local_path = args.data_folder + "/" + chunk_name + "." + str(i)
+                chunk_local_path = args.data_folder + "/" + chunk_name
                 if os.path.exists(chunk_local_path) and os.path.isfile(
                     chunk_local_path
                 ):
@@ -344,3 +373,5 @@ while True:
         else:
             print("Message type not supported")
 #
+
+

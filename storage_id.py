@@ -9,14 +9,18 @@ class StorageId:
     uid: uuid.UUID
     stripe_index: int
     replica_index: int
+    delimiter: str = "."
 
     def __str__(self) -> str:
-        return f"{self.uid}.{self.stripe_index}.{self.replica_index}"
+        return f"{self.uid}{self.delimiter}{self.stripe_index}{self.delimiter}{self.replica_index}"
+
+    def __repr__(self) -> str:
+        return f"{str(self.uid)[:8]}{self.delimiter}{self.stripe_index}{self.delimiter}{self.replica_index}"
 
     @staticmethod
     def from_string(s: str) -> "StorageId":
-        uid, stripe_index, replica_index = s.split(".")
-        return StorageId(uuid.UUID(uid), int(stripe_index), int(replica_index))
+        uid, stripe_index, replica_index = s.split(StorageId.delimiter)
+        return StorageId(uid=uuid.UUID(uid), stripe_index=int(stripe_index), replica_index=(replica_index))
 
     def __eq__(self, other: "StorageId") -> bool:
         assert isinstance(other, StorageId), f"Cannot compare StorageId with {type(other)}"

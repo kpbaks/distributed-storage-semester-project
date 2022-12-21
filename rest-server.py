@@ -176,22 +176,24 @@ def download_file(file_id: int) -> Response:
 
     match args.mode:
         case "raid1":
-            list_of_storage_ids: List[StorageId] = [StorageId.from_string(id) for id in storage_details.split(";")]
-            # list_of_stripe_uids = storage_details.split(";")
-            replication_factor: float = math.sqrt(len(list_of_storage_ids))
+            storage_ids: List[StorageId] = [StorageId.from_string(id) for id in storage_details.split(";")]
+            replication_factor: float = math.sqrt(len(storage_ids))
             assert replication_factor.is_integer() and replication_factor in [2, 3, 4], "Invalid number of fragments"
             replication_factor = int(replication_factor)
+
             # reshape the list of filenames into a 2D array of size (replication_factor, replication_factor)
-            
-            list_of_storage_ids = [
-                list_of_storage_ids[i:i + replication_factor]
-                for i in range(0, len(list_of_storage_ids), replication_factor)
+            list_of_storage_ids: List[List[StorageId]] = [
+                storage_ids[i:i + replication_factor]
+                for i in range(0, len(storage_ids), replication_factor)
             ]
+
+            pp(list_of_storage_ids)
             
             provider = Raid1StorageProvider(
                 replication_factor, send_task_socket, response_socket, data_req_socket
             )
             file_data = provider.get_file(list_of_storage_ids)
+
         case "fake-hdfs":
             pass
         case "erasure_coding_rs":
@@ -403,21 +405,24 @@ def add_files() -> Response:
     file_data: bytes = base64.b64decode(payload.get("contents_b64"))
     filesize: int = len(file_data)
     uid: uuid.UUID = uuid.uuid4()
+    logger.debug(f"File received: {filename}, size: {filesize} bytes, type: {content_type}")
+    logger.debug(f"uid: {uid}")
 
     match args.mode:
         case "raid1":
             provider = Raid1StorageProvider(args.replication_factor,
                 send_task_socket, response_socket, data_req_socket
             )
-            list_of_stripe_names = provider.store_file(file_data)
+            list_of_storage_ids = provider.store_file(file_data, uid=uid)
 
-            # storage_details: str = ",".join(flatten_list(list_of_stripe_names))
             storage_ids: List[StorageId] = []
-            for i, stripe_names in enumerate(list_of_stripe_names):
+
+
+            for i, stripe_names in enumerate(list_of_storage_ids):
                 for j, _ in enumerate(stripe_names):
                     storage_id = StorageId(uid, i, j)
                     storage_ids.append(storage_id)
-                    # storage_details += f"{uid}.{i}.{j};"
+                    
             logger.debug(f"Storage details: {storage_ids}")
 
         case "erasure_coding_rs":
