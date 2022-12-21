@@ -60,7 +60,7 @@ NC = "\033[0m"  # No Color
 # formatter = logging.Formatter('[%(levelname)s: %(asctime)s](%(name)s) - %(message)s')
 format: str = f"[{YELLOW}%(levelname)s{NC}] (%(name)s) - %(message)s"
 
-        
+
 if os.environ.get("DEBUG"):
     logging.basicConfig(level=logging.DEBUG, format=format)
 else:
@@ -154,7 +154,7 @@ def list_files():
 
 
 @app.route("/files/<int:file_id>", methods=["GET"])
-def download_file(file_id: int):
+def download_file(file_id: int) -> Response:
     logger.info(f"Received request to download file {file_id}. Storage mode is {args.mode}")
 
     db = get_db()
@@ -170,25 +170,28 @@ def download_file(file_id: int):
         logger.error(error_msg)
         return make_response({"message": error_msg}, 404)
 
-    # Convert to a Python dictionary
     database_row = dict(database_row)
 
     storage_details = database_row["storage_details"]
 
     match args.mode:
         case "raid1":
-            list_of_stripe_uids = storage_details.split(",")
-            replication_factor = math.sqrt(len(list_of_stripe_uids))
+            list_of_storage_ids: List[StorageId] = [StorageId.from_string(id) for id in storage_details.split(";")]
+            # list_of_stripe_uids = storage_details.split(";")
+            replication_factor: float = math.sqrt(len(list_of_storage_ids))
             assert replication_factor.is_integer() and replication_factor in [2, 3, 4], "Invalid number of fragments"
             replication_factor = int(replication_factor)
             # reshape the list of filenames into a 2D array of size (replication_factor, replication_factor)
-            list_of_stripe_uids = [list_of_stripe_uids[i:i + replication_factor] for i in range(0, len(list_of_stripe_uids), replication_factor)]
-            pp(f"list_of_stripe_uids {list_of_stripe_uids}")
-
+            
+            list_of_storage_ids = [
+                list_of_storage_ids[i:i + replication_factor]
+                for i in range(0, len(list_of_storage_ids), replication_factor)
+            ]
+            
             provider = Raid1StorageProvider(
                 replication_factor, send_task_socket, response_socket, data_req_socket
             )
-            file_data = provider.get_file(list_of_stripe_uids)
+            file_data = provider.get_file(list_of_storage_ids)
         case "fake-hdfs":
             pass
         case "erasure_coding_rs":
