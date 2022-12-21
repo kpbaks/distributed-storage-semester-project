@@ -29,6 +29,49 @@ from raid1 import Raid1StorageProvider
 from reedsolomon import ReedSolomonStorageProvider
 from utils import is_raspberry_pi
 
+name_of_this_script: str = os.path.basename(__file__)
+parser = argparse.ArgumentParser(prog=name_of_this_script)
+
+storage_modes: List[str] = [
+    "raid1",
+    "erasure_coding_rs",
+    "erasure_coding_rlnc",
+    "fake-hdfs",
+]
+
+parser.add_argument(
+    "-k", "--replicas", choices=[2, 3, 4], type=int, help="Number of fragments to store"
+)
+parser.add_argument(
+    "-l",
+    "--node-losses",
+    type=int,
+    choices=[1, 2],
+    help="Number of fragments to recover",
+)
+parser.add_argument(
+    "-m",
+    "--mode",
+    type=str,
+    required=True,
+    choices=storage_modes,
+    help="Mode of operation: raid1, erasure_coding_rs, erasure_coding_rlnc",
+)
+
+DEFAULT_PORT = 5557
+
+parser.add_argument(
+    "-p",
+    "--port",
+    type=int,
+    required=False,
+    default=DEFAULT_PORT,
+    help=f"port to start from. > 1023. default={DEFAULT_PORT}",
+)
+
+
+args = parser.parse_args()
+
 
 def get_db(filename: str = "files.db") -> sqlite3.Connection:
     """Get a database connection. Create it if it doesn't exist."""
@@ -58,74 +101,50 @@ else:
 
 logger.info(f"log level is {logger.getEffectiveLevel()}")
 
+
+# -------------------------------------------------------------------------------------------------
 logger.info("Initializing ZMG sockets ...")
 # Initiate ZMQ sockets
 context = zmq.Context()
 
 # Socket to send tasks to Storage Nodes
-send_task_socket = context.socket(zmq.PUSH)
-send_task_socket.bind("tcp://*:5557")
+# a zmg.PUSH socket is used to send messages to one or more zmg.PULL sockets
+# in a round robin fashion
+send_task_socket: zmq.Socket = context.socket(zmq.PUSH)
+send_task_socket.bind(f"tcp://*:{args.port}")
 
 # Socket to receive messages from Storage Nodes
-response_socket = context.socket(zmq.PULL)
-response_socket.bind("tcp://*:5558")
+# a zmg.PULL socket is used to receive messages from one or more zmg.PUSH sockets
+# in a fair queue fashion
+response_socket: zmq.Socket = context.socket(zmq.PULL)
+response_socket.bind(f"tcp://*:{args.port + 1}")
 
 # Publisher socket for data request broadcasts
-data_req_socket = context.socket(zmq.PUB)
-data_req_socket.bind("tcp://*:5559")
+data_req_socket: zmq.Socket = context.socket(zmq.PUB)
+data_req_socket.bind(f"tcp://*:{args.port + 2}")
 
 # Publisher socket for fragment repair broadcasts
-repair_socket = context.socket(zmq.PUB)
-repair_socket.bind("tcp://*:5560")
+repair_socket: zmq.Socket = context.socket(zmq.PUB)
+repair_socket.bind(f"tcp://*:{args.port + 3}")
 
 # Socket to receive repair messages from Storage Nodes
-repair_response_socket = context.socket(zmq.PULL)
-repair_response_socket.bind("tcp://*:5561")
+repair_response_socket: zmq.Socket = context.socket(zmq.PULL)
+repair_response_socket.bind(f"tcp://*:{args.port + 4}")
 
 logger.info("Initializing ZMG sockets ... DONE")
 # Wait for all workers to start and connect.
 time.sleep(1)
-logger.info("Listening to ZMQ messages on tcp://*:5558 and tcp://*:5561")
-
-
-name_of_this_script: str = os.path.basename(__file__)
-parser = argparse.ArgumentParser(prog=name_of_this_script)
-
-storage_modes: List[str] = ["raid1", "erasure_coding_rs", "erasure_coding_rlnc", "fake-hdfs"]
-
-parser.add_argument(
-    "-k", "--replicas", choices=[2, 3, 4], type=int, help="Number of fragments to store"
-)
-parser.add_argument(
-    "-l",
-    "--node-losses",
-    type=int,
-    choices=[1, 2],
-    help="Number of fragments to recover",
-)
-parser.add_argument(
-    "-m",
-    "--mode",
-    type=str,
-    required=True,
-    choices=storage_modes,
-    help="Mode of operation: raid1, erasure_coding_rs, erasure_coding_rlnc",
+logger.info(
+    f"Listening to ZMQ messages on tcp://*:{args.port + 1} and tcp://*:{args.port + 4}"
 )
 
 
-args = parser.parse_args()
-
-
+# -------------------------------------------------------------------------------------------------
 logger.debug("Instantiating Flask app")
 # Instantiate the Flask app (must be before the endpoint functions)
 app = Flask(__name__)
 # Close the DB connection after serving the request
 app.teardown_appcontext(close_db)
-
-
-# @app.route("/")
-# def hello():
-#     return make_response({"message": "Hello World!"})
 
 
 @app.route("/files", methods=["GET"])
@@ -145,7 +164,9 @@ def list_files():
 
 @app.route("/files/<int:file_id>", methods=["GET"])
 def download_file(file_id: int):
-    logger.info(f"Received request to download file {file_id}. Storage mode is {args.mode}")
+    logger.info(
+        f"Received request to download file {file_id}. Storage mode is {args.mode}"
+    )
 
     db = get_db()
     cursor = db.execute("SELECT * FROM `file` WHERE `id`=?", [file_id])
@@ -284,8 +305,6 @@ def get_file_metadata(file_id: int):
 #     return make_response("TODO: implement this endpoint", 404)
 
 
-
-
 # @app.route("/files_mp", methods=["POST"])
 # def add_files_multipart():
 #     # Flask separates files from the other form fields
@@ -378,11 +397,9 @@ def get_file_metadata(file_id: int):
 #     return make_response({"id": cursor.lastrowid}, 201)
 
 
-
-
 @app.route("/files", methods=["POST"])
 def add_files():
-    """ Add a new file to the storage system """
+    """Add a new file to the storage system"""
     payload = request.get_json()
     filename: str = payload.get("filename")
     content_type: str = payload.get("content_type")

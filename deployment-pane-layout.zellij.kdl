@@ -8,6 +8,10 @@ layout {
 		start_suspended true
 		name "rest-server"
 	}
+	pane {
+		name "client"
+		// close_on_exit true
+	}
 	pane split_direction="vertical" {
 		pane {
 			command "poetry"
