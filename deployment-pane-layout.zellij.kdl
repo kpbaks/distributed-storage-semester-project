@@ -7,6 +7,7 @@ layout {
 		close_on_exit false
 		start_suspended true
 		name "rest-server"
+		size "60%"
 	}
 	pane {
 		name "client"
@@ -25,6 +26,8 @@ layout {
 			name "storage1"
 			close_on_exit true
 		}
+	
+	pane split_direction="vertical" {
 		pane {
 			command "poetry"
 			args "run" "python" "storage-node.py" "storage2"
@@ -38,4 +41,10 @@ layout {
 			close_on_exit true
 		}
 	}
+}
+
+keybinds {
+    shared {
+        bind "Ctrl q" { CloseTab; }
+    }
 }

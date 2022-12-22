@@ -15,6 +15,32 @@ message fragment_status_request
     string fragment_name = 1;
 }
 
+message StorageNode
+{
+	string ip = 1;
+	int32 port = 2;
+}
+
+// Task 1.2 ---------------------------------------------------------------------------------------
+message fhdfs_storedata_request
+{
+	uint64 stripe_id = 1;
+	uint64 fragment_id = 2;
+	// The REST server will construct this list.
+	// When a storage node receives this request, it will remove itself from the list.
+	// The list will be empty when the request reaches the last storage node.
+	repeated StorageNode nodes_to_forward_to = 3;
+	/* bytes stripe = 4; */
+}
+
+message fhdfs_storedata_response
+{
+	bool success = 1;
+	repeated string storage_ids = 2;
+}
+
+// ------------------------------------------------------------------------------------------------
+
 message fragment_status_response
 {
     string fragment_name = 1;

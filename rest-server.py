@@ -3,10 +3,12 @@ Aarhus University - Distributed Storage course - Lab 6
 
 REST API + RAID Controller
 """
+
 import argparse
 import atexit  # unregister scheduler at app exit
 import base64
 import io  # For sending binary data in a HTTP response
+import itertools as it
 import logging
 import math  # For cutting the file in half
 import os
@@ -15,12 +17,10 @@ import sqlite3
 import string
 import sys
 import time  # For waiting a second for ZMQ connections
+import uuid
+from hashlib import sha256
 from pprint import pp
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-
-from hashlib import sha256
-
-import itertools as it
 
 import zmq  # For ZMQ
 # from apscheduler.schedulers.background import \
@@ -31,10 +31,9 @@ import messages_pb2  # Generated Protobuf messages
 import rlnc
 from raid1 import Raid1StorageProvider
 from reedsolomon import ReedSolomonStorageProvider
-from utils import is_raspberry_pi, flatten_list
 from storage_id import StorageId
+from utils import flatten_list, is_raspberry_pi
 
-import uuid
 
 def get_db(filename: str = "files.db") -> sqlite3.Connection:
     """Get a database connection. Create it if it doesn't exist."""
@@ -101,10 +100,19 @@ logger.info("Listening to ZMQ messages on tcp://*:5558 and tcp://*:5561")
 name_of_this_script: str = os.path.basename(__file__)
 parser = argparse.ArgumentParser(prog=name_of_this_script)
 
-storage_modes: List[str] = ["raid1", "erasure_coding_rs", "erasure_coding_rlnc", "fake-hdfs"]
+storage_modes: List[str] = [
+    "raid1",
+    "erasure_coding_rs",
+    "erasure_coding_rlnc",
+    "fake-hdfs",
+]
 
 parser.add_argument(
-    "-k", "--replication-factor", choices=[2, 3, 4], type=int, help="Number of fragments to store"
+    "-k",
+    "--replication-factor",
+    choices=[2, 3, 4],
+    type=int,
+    help="Number of fragments to store",
 )
 parser.add_argument(
     "-l",
@@ -155,7 +163,9 @@ def list_files():
 
 @app.route("/files/<int:file_id>", methods=["GET"])
 def download_file(file_id: int) -> Response:
-    logger.info(f"Received request to download file {file_id}. Storage mode is {args.mode}")
+    logger.info(
+        f"Received request to download file {file_id}. Storage mode is {args.mode}"
+    )
 
     db = get_db()
     cursor = db.execute("SELECT * FROM `file` WHERE `id`=?", [file_id])
@@ -176,25 +186,32 @@ def download_file(file_id: int) -> Response:
 
     match args.mode:
         case "raid1":
-            storage_ids: List[StorageId] = [StorageId.from_string(id) for id in storage_details.split(";")]
+            storage_ids: List[StorageId] = [
+                StorageId.from_string(id) for id in storage_details.split(";")
+            ]
             replication_factor: float = math.sqrt(len(storage_ids))
-            assert replication_factor.is_integer() and replication_factor in [2, 3, 4], "Invalid number of fragments"
+            assert replication_factor.is_integer() and replication_factor in [
+                2,
+                3,
+                4,
+            ], "Invalid number of fragments"
             replication_factor = int(replication_factor)
 
             # reshape the list of filenames into a 2D array of size (replication_factor, replication_factor)
             list_of_storage_ids: List[List[StorageId]] = [
-                storage_ids[i:i + replication_factor]
+                storage_ids[i : i + replication_factor]
                 for i in range(0, len(storage_ids), replication_factor)
             ]
 
             pp(list_of_storage_ids)
-            
+
             provider = Raid1StorageProvider(
                 replication_factor, send_task_socket, response_socket, data_req_socket
             )
             file_data = provider.get_file(list_of_storage_ids)
 
         case "fake-hdfs":
+
             pass
         case "erasure_coding_rs":
             pass
@@ -204,8 +221,9 @@ def download_file(file_id: int) -> Response:
             error_msg: str = "Invalid storage mode"
             logger.error(error_msg)
             return make_response({"message": error_msg}, 500)
-    
-    file_hash: str = sha256(file_data).hexdigest() # This is the hash of the file that is reconstructed
+
+    # This is the hash of the file that is reconstructed
+    file_hash: str = sha256(file_data).hexdigest()
     assert file_hash == database_row["hash"], "File hash mismatch"
 
     logger.info(f"File {file_id} downloaded successfully")
@@ -300,8 +318,6 @@ def get_file_metadata(file_id: int):
 #     return make_response("TODO: implement this endpoint", 404)
 
 
-
-
 # @app.route("/files_mp", methods=["POST"])
 # def add_files_multipart():
 #     # Flask separates files from the other form fields
@@ -394,35 +410,37 @@ def get_file_metadata(file_id: int):
 #     return make_response({"id": cursor.lastrowid}, 201)
 
 
-
-
 @app.route("/files", methods=["POST"])
 def add_files() -> Response:
-    """ Add a new file to the storage system """
+    """Add a new file to the storage system"""
     payload: Any | None = request.get_json()
     filename: str = payload.get("filename")
     content_type: str = payload.get("content_type")
     file_data: bytes = base64.b64decode(payload.get("contents_b64"))
     filesize: int = len(file_data)
     uid: uuid.UUID = uuid.uuid4()
-    logger.debug(f"File received: {filename}, size: {filesize} bytes, type: {content_type}")
+    logger.debug(
+        f"File received: {filename}, size: {filesize} bytes, type: {content_type}"
+    )
     logger.debug(f"uid: {uid}")
 
     match args.mode:
         case "raid1":
-            provider = Raid1StorageProvider(args.replication_factor,
-                send_task_socket, response_socket, data_req_socket
+            provider = Raid1StorageProvider(
+                args.replication_factor,
+                send_task_socket,
+                response_socket,
+                data_req_socket,
             )
             list_of_storage_ids = provider.store_file(file_data, uid=uid)
 
             storage_ids: List[StorageId] = []
 
-
             for i, stripe_names in enumerate(list_of_storage_ids):
                 for j, _ in enumerate(stripe_names):
                     storage_id = StorageId(uid, i, j)
                     storage_ids.append(storage_id)
-                    
+
             logger.debug(f"Storage details: {storage_ids}")
 
         case "erasure_coding_rs":
@@ -446,7 +464,9 @@ def add_files() -> Response:
 
     db.commit()
 
-    logger.info(f"File stored: {filename}, size: {filesize} bytes, type: {content_type}, with id: {cursor.lastrowid}")
+    logger.info(
+        f"File stored: {filename}, size: {filesize} bytes, type: {content_type}, with id: {cursor.lastrowid}"
+    )
 
     # Return the ID of the new file record with HTTP 201 (Created) status code
     return make_response({"id": cursor.lastrowid}, 201)
