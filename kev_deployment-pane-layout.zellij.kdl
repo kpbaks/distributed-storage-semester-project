@@ -3,7 +3,7 @@
 layout {
 	pane {
 		command "python"
-		args "rest-server.py" "-k" "4" "-l" "2" "-m" "raid1"
+		args "rest-server.py" "-k" "4" "-l" "2" "-m" "fake-hdfs"
 		close_on_exit false
 		start_suspended false
 		name "rest-server"
@@ -12,13 +12,13 @@ layout {
 	pane split_direction="vertical" {
 		pane {
 			command "python"
-			args "storage-node.py" "storage-node0"
+			args "storage-node.py" "storage-node0" "-m" "fake-hdfs"
 			name "storage-node0"
 			close_on_exit false
 		}
 		pane {
 			command "python"
-			args "storage-node.py" "storage-node1"
+			args "storage-node.py" "storage-node1" "-m" "fake-hdfs"
 			name "storage-node1"
 			close_on_exit false
 		}
@@ -26,13 +26,13 @@ layout {
 	pane split_direction="vertical" {
 		pane {
 			command "python"
-			args "storage-node.py" "storage-node2"
+			args "storage-node.py" "storage-node2" "-m" "fake-hdfs"
 			name "storage-node2"
 			close_on_exit false
 		}
 		pane {
 			command "python"
-			args "storage-node.py" "storage-node3"
+			args "storage-node.py" "storage-node3" "-m" "fake-hdfs"
 			name "storage-node3"
 			close_on_exit false
 		}
@@ -42,6 +42,6 @@ layout {
 
 keybinds {
     shared {
-           bind "Ctrl c" { CloseTab; }
+        bind "Ctrl c" { CloseTab; }
     }
 }
