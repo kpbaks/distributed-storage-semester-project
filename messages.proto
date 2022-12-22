@@ -33,6 +33,13 @@ message fhdfs_storedata_request
 	/* bytes stripe = 4; */
 }
 
+
+message HeartBeatResponse
+{
+	string uid = 1;
+	bool is_alive = 2;
+}
+
 message fhdfs_storedata_response
 {
 	bool success = 1;

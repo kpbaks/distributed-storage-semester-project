@@ -10,3 +10,8 @@ STORAGE_MODES: List[str] = [
     "erasure_coding_rlnc",
     "fake-hdfs",
 ]
+
+
+TOPIC_HEARTBEAT = "heartbeat"
+
+PORT_HEARTBEAT = 5555

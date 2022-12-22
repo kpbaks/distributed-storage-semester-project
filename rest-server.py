@@ -20,9 +20,13 @@ import time  # For waiting a second for ZMQ connections
 import uuid
 from hashlib import sha256
 from pprint import pp
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import zmq  # For ZMQ
+from apscheduler import Task
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.sync import Scheduler
+from apscheduler.triggers.interval import IntervalTrigger
 # from apscheduler.schedulers.background import \
 #     BackgroundScheduler  # automated repair
 from flask import Flask, Response, g, make_response, request, send_file
@@ -85,6 +89,11 @@ repair_socket.bind("tcp://*:5560")
 # Socket to receive repair messages from Storage Nodes
 repair_response_socket = context.socket(zmq.PULL)
 repair_response_socket.bind("tcp://*:5561")
+
+sock_dealer_request_heartbeat = context.socket(zmq.DEALER)
+sock_dealer_request_heartbeat.bind("tcp://*:5570")
+# Set the timeout for the recv() method to 1 second
+sock_dealer_request_heartbeat.RCVTIMEO = 1000
 
 logger.info("Initializing ZMG sockets ... DONE")
 # Wait for all workers to start and connect.
@@ -192,8 +201,6 @@ def download_file(file_id: int) -> Response:
                 for i in range(0, len(storage_ids), replication_factor)
             ]
 
-            pp(list_of_storage_ids)
-
             provider = Raid1StorageProvider(
                 replication_factor, send_task_socket, response_socket, data_req_socket
             )
@@ -264,27 +271,8 @@ def download_file(file_id: int) -> Response:
 # so we'll introduce a new endpoint URL for requesting file metadata.
 
 
-@app.route("/files/<int:file_id>/info", methods=["GET"])
-def get_file_metadata(file_id: int):
-
-    db = get_db()
-    cursor = db.execute("SELECT * FROM `file` WHERE `id`=?", [file_id])
-    if not cursor:
-        return make_response({"message": "Error connecting to the database"}, 500)
-
-    f = cursor.fetchone()
-    if not f:
-        return make_response({"message": "File {} not found".format(file_id)}, 404)
-
-    # Convert to a Python dictionary
-    f = dict(f)
-    print("File: %s" % f)
-
-    return make_response(f)
-
-
-# @app.route("/files/<int:file_id>", methods=["DELETE"])
-# def delete_file(file_id):
+# @app.route("/files/<int:file_id>/info", methods=["GET"])
+# def get_file_metadata(file_id: int):
 
 #     db = get_db()
 #     cursor = db.execute("SELECT * FROM `file` WHERE `id`=?", [file_id])
@@ -297,14 +285,9 @@ def get_file_metadata(file_id: int):
 
 #     # Convert to a Python dictionary
 #     f = dict(f)
-#     print("File to delete: %s" % f)
+#     print("File: %s" % f)
 
-#     # TODO Delete all chunks from the Storage Nodes
-
-#     # TODO Delete the file record from the DB
-
-#     # Return empty 200 Ok response
-#     return make_response("TODO: implement this endpoint", 404)
+#     return make_response(f)
 
 
 # @app.route("/files_mp", methods=["POST"])
@@ -408,10 +391,9 @@ def add_files() -> Response:
     file_data: bytes = base64.b64decode(payload.get("contents_b64"))
     filesize: int = len(file_data)
     uid: uuid.UUID = uuid.uuid4()
-    logger.debug(
+    logger.info(
         f"File received: {filename}, size: {filesize} bytes, type: {content_type}"
     )
-    logger.debug(f"uid: {uid}")
 
     match args.mode:
         case "raid1":
@@ -540,6 +522,60 @@ def add_files() -> Response:
 def server_error(e):
     logging.exception("Internal error: %s", e)
     return make_response({"error": str(e)}, 500)
+
+
+def task_send_heartbeat_request() -> None:
+    sock_dealer_request_heartbeat.send_string("heartbeat")
+
+    storage_nodes_online: Set[uuid.UUID] = {}
+
+    # We have 4 nodes in total
+    num_timeout_reached = 0
+    for i in range(4):
+        try:
+            reply = sock_dealer_request_heartbeat.recv()
+        except zmq.ZmqError:
+            # If the timeout of 1000 ms is reached we deem the node as being offline
+            num_timeout_reached += 1
+            logger.warn(f"Timeout reached [{num_timeout_reached}]")
+        else:
+            # Expect reply to be of type HeartBeatResponse
+            resp = messages_pb2.HeartBeatResponse()
+            resp.ParseFromString(reply)
+            uid = uuid.UUID(bytes=resp.uid)
+            storage_nodes_online = storage_nodes_online & uid
+
+    # Figure out which storage nodes have not replied
+
+
+scheduler = BackgroundScheduler()
+
+interval: int = 10  # seconds
+
+scheduler.add_job(
+    func=task_send_heartbeat_request,
+    trigger=IntervalTrigger(seconds=interval),
+    id="heartbeat-request",
+    name=f"A job that runs every {interval} seconds",
+    replace_existing=True,
+)
+
+
+@app.before_first_request
+def activate_scheduler():
+    scheduler.start()
+
+
+@app.teardown_appcontext
+def shutdown_scheduler(exception=None):
+    scheduler.shutdown()
+
+
+# with Scheduler() as scheduler:
+#     # Add schedules, configure tasks here
+#     scheduler.start_in_background()
+#     task = Task()
+#     trigger = IntervalTrigger(seconds=60)
 
 
 # Start the Flask app (must be after the endpoint functions)

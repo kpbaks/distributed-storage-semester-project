@@ -10,11 +10,10 @@ CREATE TABLE `file_metadata` (
 );
 
 CREATE TABLE `storage_nodes` (
-	storage_node_id INTEGER PRIMARY KEY AUTOINCREMENT,
-	uid TEXT,
-	storage_node_type TEXT,
-	address TEXT,
-	port INTEGER,
+	`storage_node_id` INTEGER PRIMARY KEY AUTOINCREMENT,
+	`uid` TEXT,
+	`address` TEXT,
+	`port` INTEGER,
 )
 
 -- A fragment is a part of a file that is stored on a storage node

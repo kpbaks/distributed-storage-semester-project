@@ -16,6 +16,7 @@ import zmq
 import messages_pb2
 import rlnc
 from utils import is_raspberry_pi, random_string, write_file, create_logger, get_interface_ipaddress
+import constants
 
 logger = create_logger()
 logger.info(f"log level is {logger.getEffectiveLevel()}")
@@ -64,6 +65,7 @@ if is_raspberry_pi():
     repair_subscriber_address = f"tcp://{ip_address}:5560"
     repair_sender_address = f"tcp://{ip_address}:5561"
     server_sock_task_1_2_address = f"tcp://{ip_address}:5562"
+    sock_router_heartbeat_request_addr = f"tcp://{ip_address}:{constants.PORT_HEARTBEAT}"
 else:
     # On the local computer: use localhost
     pull_address = "tcp://localhost:5557"
@@ -72,6 +74,7 @@ else:
     repair_subscriber_address = "tcp://localhost:5560"
     repair_sender_address = "tcp://localhost:5561"
     server_sock_task_1_2_address = f"tcp://localhost:{5562 + args.server_sock_port}"
+    sock_router_heartbeat_request_addr = f"tcp://localhost:{constants.PORT_HEARTBEAT}"
 
 
 context = zmq.Context()
@@ -108,6 +111,9 @@ subscriber_sock_task1_2 = context.socket(zmq.SUB)
 subscriber_sock_task1_2.setsocketopt(zmq.SUBSCRIBE, b"")
 subscriber_sock_task1_2.connect(server_sock_task_1_2_address)
 
+sock_router_heartbeat_request = context.socket(zmq.ROUTER)
+sock_router_heartbeat_request.bind(sock_router_heartbeat_request_addr)
+# sock_sub_heartbeat_request.setsocketopt(zmq.SUBSCRIBE, constants.TOPIC_HEARTBEAT.encode("utf-8"))
 
 
 
@@ -116,7 +122,8 @@ poller = zmq.Poller()
 for sock in [
     receiver,
     subscriber,
-    repair_subscriber
+    repair_subscriber,
+    sock_router_heartbeat_request
 ]:
     poller.register(sock, zmq.POLLIN)
 
@@ -238,6 +245,18 @@ def main_loop() -> None:
         if subscriber in socks:
             logger.info("Received message on subscriber socket")
             subscriber_action(subscriber, sender)
+
+        if sock_router_heartbeat_request in socks:
+            message = sock_router_heartbeat_request.recv_multipart()
+            # Extract the identity of the sender
+            sender_id = message[0]
+            logger.info(f"Received heartbeat request from {sender_id}")
+
+            # TODO: create response
+            response = messages_pb2.HeartBeatResponse()
+            # Send a reply to the sender
+            sock_router_heartbeat_request.send_multipart([sender_id, b"reply"])
+
 
     #     if repair_subscriber in socks:
     #         print(f"Received message on repair_subscriber socket")
