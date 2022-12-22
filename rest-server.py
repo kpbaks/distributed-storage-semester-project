@@ -29,10 +29,11 @@ from flask import Flask, Response, g, make_response, request, send_file
 
 import messages_pb2  # Generated Protobuf messages
 import rlnc
+from constants import STORAGE_MODES
 from raid1 import Raid1StorageProvider
 from reedsolomon import ReedSolomonStorageProvider
 from storage_id import StorageId
-from utils import flatten_list, is_raspberry_pi
+from utils import create_logger, flatten_list, is_raspberry_pi
 
 
 def get_db(filename: str = "files.db") -> sqlite3.Connection:
@@ -53,23 +54,17 @@ def close_db(e=None) -> None:
         db.close()
 
 
-logger = logging.getLogger(__name__)
-YELLOW = "\033[93m"
-NC = "\033[0m"  # No Color
-# formatter = logging.Formatter('[%(levelname)s: %(asctime)s](%(name)s) - %(message)s')
-format: str = f"[{YELLOW}%(levelname)s{NC}] (%(name)s) - %(message)s"
-
-
-if os.environ.get("DEBUG"):
-    logging.basicConfig(level=logging.DEBUG, format=format)
-else:
-    logging.basicConfig(level=logging.INFO, format=format)
-
+logger = create_logger()
 logger.info(f"log level is {logger.getEffectiveLevel()}")
 
 logger.info("Initializing ZMG sockets ...")
 # Initiate ZMQ sockets
 context = zmq.Context()
+
+# Socket to receive setup message from storage nodes, when they come online.
+# TODO: figure out how to register a callback
+setup_addr_socket = context.socket(zmq.PULL)
+setup_addr_socket.bind("tcp://*:5556")
 
 # Socket to send tasks to Storage Nodes
 send_task_socket = context.socket(zmq.PUSH)
@@ -100,12 +95,6 @@ logger.info("Listening to ZMQ messages on tcp://*:5558 and tcp://*:5561")
 name_of_this_script: str = os.path.basename(__file__)
 parser = argparse.ArgumentParser(prog=name_of_this_script)
 
-storage_modes: List[str] = [
-    "raid1",
-    "erasure_coding_rs",
-    "erasure_coding_rlnc",
-    "fake-hdfs",
-]
 
 parser.add_argument(
     "-k",
@@ -126,7 +115,7 @@ parser.add_argument(
     "--mode",
     type=str,
     required=True,
-    choices=storage_modes,
+    choices=STORAGE_MODES,
     help="Mode of operation: raid1, erasure_coding_rs, erasure_coding_rlnc",
 )
 

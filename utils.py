@@ -1,8 +1,15 @@
+import fcntl
+import logging
 import os
 import random
+import socket
 import string
+import struct
+import subprocess
 import time
 from typing import Any, Iterable, List, Optional
+
+from constants import *
 
 random.seed(time.time())
 
@@ -92,3 +99,27 @@ def elements_in_list_are_unique(lst: List[Any]) -> bool:
     """
     assert isinstance(lst, list), f"The given argument is not a list, but a {type(lst)}"
     return len(lst) == len(set(lst))
+
+
+def create_logger(name: str | None = None, level: int = logging.INFO) -> logging.Logger:
+    """
+    Returns a logger with the given name and log level.
+    """
+
+    format: str = f"[{YELLOW}%(levelname)s{NC}] (%(name)s) - %(message)s"
+
+    # see if DEBUG is defined as an env var
+    if os.environ.get("DEBUG"):
+        logging.basicConfig(level=logging.DEBUG, format=format)
+    else:
+        logging.basicConfig(level=logging.INFO, format=format)
+
+    logger = logging.getLogger(name or __name__)
+    # logger.setLevel(level)
+    return logger
+
+
+def get_interface_ipaddress(network: str) -> str:
+    addr = subprocess.check_output(["ip", "addr", "show", network]).decode("utf-8")
+    addr = addr.split("inet ")[1].split("/")[0]
+    return addr

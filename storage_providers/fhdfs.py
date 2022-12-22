@@ -1,7 +1,6 @@
 import math
 import uuid
 from typing import Any, Callable, Dict, List, Optional
-import sqlite3
 
 import zmq
 
@@ -9,6 +8,10 @@ from .. import messages_pb2
 from ..storage_id import StorageId
 from ..storage_node import StorageNode
 from ..storage_provider import StorageProvider
+
+# import sqlite3
+
+
 
 
 class FhdfsStorageProvider(StorageProvider):
@@ -84,27 +87,30 @@ class FhdfsStorageProvider(StorageProvider):
             case [2, 4]:
                 list_of_nodes_to_forward_to: List[List[Any]] = [
                     [node0, node1],
-                    [node2, node3]
+                    [node2, node3],
                 ]
             case [3, 4]:
                 list_of_nodes_to_forward_to: List[List[Any]] = [
                     [node0, node1, node2],
                     [node2, node3, node1],
-                    [node1, node3, node2]
+                    [node1, node3, node2],
                 ]
             case [4, 4]:
                 list_of_nodes_to_forward_to: List[List[Any]] = [
                     [node0, node1, node2, node3],
                     [node2, node3, node1, node0],
                     [node1, node3, node2, node0],
-                    [node3, node2, node1, node0]
+                    [node3, node2, node1, node0],
                 ]
             case _:
-                raise NotImplementedError(f"Replication factor {self.replication_factor} and number of storage nodes {num_storage_nodes} not implemented")
-
+                raise NotImplementedError(
+                    f"Replication factor {self.replication_factor} and number of storage nodes {num_storage_nodes} not implemented"
+                )
 
         # -----------------------------------------------------------------------------------------
-        for i, (socket, stripe, nodes_to_forward_to) in enumerate(zip(request_sockets, list_of_stripes, list_of_nodes_to_forward_to)):
+        for i, (socket, stripe, nodes_to_forward_to) in enumerate(
+            zip(request_sockets, list_of_stripes, list_of_nodes_to_forward_to)
+        ):
             # Create protobuf message
             request = messages_pb2.fhdfs_storedata_request()
             request.stripe_id = i
@@ -114,8 +120,8 @@ class FhdfsStorageProvider(StorageProvider):
             request.nodes_to_forward_to = nodes_to_forward_to
             request_serialized: str = request.SerializeToString()
             first_node_to_forward_to = nodes_to_forward_to[0]
-            addr: str = first_node_to_forward_to['address']
-            port: int = first_node_to_forward_to['port']
+            addr: str = first_node_to_forward_to["address"]
+            port: int = first_node_to_forward_to["port"]
             # This call is NON-BLOCKING
             # Send a sequence of buffers as a multipart message.
             socket.connect(f"tcp://{addr}:{port}")
