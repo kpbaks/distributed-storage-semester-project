@@ -6,13 +6,8 @@ import sys
 from pprint import pp
 from typing import List, Tuple
 import logging
-import itertools as it
 import uuid
-
-
-
 import zmq
-
 import messages_pb2
 from storage_provider import StorageProvider
 from utils import random_string, remove_duplicate_from_list
@@ -80,15 +75,6 @@ class Raid1StorageProvider(StorageProvider):
             file_data[i : i + part_size] for i in range(0, file_size, part_size)
         ]
 
-        # storage_ids = []
-        # for stripe_idx in range(self.replication_factor):
-        #     for replica_idx in range(self.replication_factor):
-        #         storage_ids.append(StorageId(uid, stripe_index=stripe_idx, replica_index=replica_idx))
-
-        # [ [ (0, 0), (0, 1) ], [ (1,0), (1, 1) ]]
-
-
-
         list_of_storage_ids = [
             [
                 StorageId(uid, stripe_index=stripe_index, replica_index=replica_index)
@@ -97,7 +83,6 @@ class Raid1StorageProvider(StorageProvider):
         ]
 
         self.logger.debug(f"list_of_storage_ids: {list_of_storage_ids}")
-
 
         for storage_ids in list_of_storage_ids:
             assert len(storage_ids) == len(list_of_stripe_data), f"storage_ids: {storage_ids} must have length {len(list_of_stripe_data)}"

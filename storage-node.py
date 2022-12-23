@@ -12,7 +12,6 @@ import shutil
 import zmq
 
 import messages_pb2
-import rlnc
 from utils import is_raspberry_pi, random_string, write_file
 
 # formatter = logging.Formatter('[%(levelname)s: %(asctime)s](%(name)s) - %(message)s')
@@ -305,38 +304,6 @@ while True:
             # Only send a result if at least one chunk was found
             if len(frames) > 1:
                 repair_sender.send_multipart(frames)
-
-        elif header.request_type == messages_pb2.RECODE_FRAGMENTS_REQ:
-            # Recode fragment data request, specific to RLNC repairs
-            task = messages_pb2.recode_fragments_request()
-            task.ParseFromString(msg[2])
-            fragment_name = task.fragment_name
-            symbol_count = task.symbol_count
-            output_fragment_count = task.output_fragment_count
-            print("Recoded fragment request: %s" % fragment_name)
-
-            # Try to load the requested files from the local file system
-            fragment_count = 0
-            fragments = []
-
-            for i in range(0, MAX_CHUNKS_PER_FILE):
-                try:
-                    with open(
-                        args.data_folder + "/" + fragment_name + "." + str(i), "rb"
-                    ) as in_file:
-                        fragments.append(bytearray(in_file.read()))
-                    fragment_count += 1
-                except FileNotFoundError:
-                    # This is OK here
-                    pass
-
-            # If at least one fragment is found, recode and send the result
-            if fragment_count > 0:
-                recoded_symbols = rlnc.recode(
-                    fragments, symbol_count, output_fragment_count
-                )
-                print("Fragment found, sending requested recoded symbols")
-                repair_sender.send_multipart(recoded_symbols)
 
         elif header.request_type == messages_pb2.STORE_FRAGMENT_DATA_REQ:
             # Fragment store request
