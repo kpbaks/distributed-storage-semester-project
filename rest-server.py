@@ -29,7 +29,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 # from apscheduler.schedulers.background import \
 #     BackgroundScheduler  # automated repair
-from flask import Flask, Response, g, make_response, request, send_file
+from flask import Flask, Response, g, make_response, request, send_file, redirect
 
 import messages_pb2  # Generated Protobuf messages
 # import rlnc
@@ -384,12 +384,85 @@ def download_file(file_id: int) -> Response:
 
 #     return make_response({"id": cursor.lastrowid}, 201)
 
+@app.route("/files_task1.1", methods=["POST"])
+def add_files_task1_1() -> Response:
+    """
+    Add a new file to the storage system.
+    """
+
+    payload: Any | None = request.get_json()
+    filename: str = payload.get("filename")
+    content_type: str = payload.get("content_type")
+    file_data: bytes = base64.b64decode(payload.get("contents"))
+
+    
+
+    return make_response({"id": cursor.lastrowid}, 201)
+
+
+@app.route("/files_task1.2", methods=["POST"])
+def add_files_task1_2() -> Response:
+    """
+    Add a new file to the storage system.
+    """
+
+    payload: Any | None = request.get_json()
+    filename: str = payload.get("filename")
+    content_type: str = payload.get("content_type")
+    file_data: bytes = base64.b64decode(payload.get("contents"))
+
+    
+
+    return make_response({"id": cursor.lastrowid}, 201)
+
+@app.route("/files_task2.1", methods=["POST"])
+def add_files_task2_1() -> Response:
+    """
+    Add a new file to the storage system.
+    """
+
+    payload: Any | None = request.get_json()
+    filename: str = payload.get("filename")
+    content_type: str = payload.get("content_type")
+    file_data: bytes = base64.b64decode(payload.get("contents"))
+
+    
+
+    return make_response({"id": cursor.lastrowid}, 201)
+
+@app.route("/files_task2.2", methods=["POST"])
+def add_files_task2_2() -> Response:
+    """
+    Add a new file to the storage system.
+    """
+
+    payload: Any | None = request.get_json()
+    filename: str = payload.get("filename")
+    content_type: str = payload.get("content_type")
+    file_data: bytes = base64.b64decode(payload.get("contents"))
+
+    
+
+    return make_response({"id": cursor.lastrowid}, 201)
 
 @app.route("/files", methods=["POST"])
 def add_files() -> Response:
     """
     Add a new file to the storage system.
     """
+
+    match args.mode:
+        case "task1.1":
+            return redirect("/files_task1.1", code=307)
+        case "task1.2":
+            return redirect("/files_task1.2", code=307)
+        case "task2.1":
+            return redirect("/files_task2.1", code=307)
+        case "task2.2":
+            return redirect("/files_task2.2", code=307)
+        case _:
+            return make_response("Wrong storage mode", 400)
+
     payload: Any | None = request.get_json()
     filename: str = payload.get("filename")
     content_type: str = payload.get("content_type")
@@ -598,5 +671,6 @@ atexit.register(scheduler.shutdown)
 host_local_computer = "localhost"  # Listen for connections on the local computer
 host_local_network = "0.0.0.0"  # Listen for connections on the local network
 app.run(
-    host=host_local_network if is_raspberry_pi() else host_local_computer, port=9000
+    host=host_local_network if is_raspberry_pi() else host_local_computer, 
+    port=9000
 )

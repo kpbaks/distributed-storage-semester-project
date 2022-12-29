@@ -10,14 +10,12 @@ for cmd in ${dependencies[@]}; do
 	fi
 done
 
-if [ ! -f "files.db" ]; then
+if ! [ -f "files.db" ]; then
 	echo "Creating database..."
 	sqlite3 files.db < ./create_table.sql
 fi
 
-if [ ! -f "messages_pb2.py" ]; then
+if ! [ -f "messages_pb2.py" ]; then
 	echo "Generating classes from ./messages.proto"
 	protoc --python_out=. messages.proto
 fi
-
-
