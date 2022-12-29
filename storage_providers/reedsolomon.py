@@ -5,29 +5,29 @@ import random
 
 import kodo
 import messages_pb2  # protobuf messages
-from storage_provider import StorageProvider
-from utils import random_string
+# from storage_provider import StorageProvider
+# from utils import random_string
 
 
-class ReedSolomonStorageProvider(StorageProvider):
-    """
-    Implements a storage provider that uses Reed Solomon erasure coding to protect
-    the data against storage node failures.
-    """
+# class ReedSolomonStorageProvider(StorageProvider):
+#     """
+#     Implements a storage provider that uses Reed Solomon erasure coding to protect
+#     the data against storage node failures.
+#     """
 
-    def __init__(self, max_erasures, storage_nodes):
-        """
-        :param max_erasures: How many storage node failures should the data survive
-        :param storage_nodes: List of storage node addresses, e.g. ['tcp://
-        """
-        self.max_erasures = max_erasures
-        self.storage_nodes = storage_nodes
+#     def __init__(self, max_erasures, storage_nodes):
+#         """
+#         :param max_erasures: How many storage node failures should the data survive
+#         :param storage_nodes: List of storage node addresses, e.g. ['tcp://
+#         """
+#         self.max_erasures = max_erasures
+#         self.storage_nodes = storage_nodes
 
-    def store_file(self, file_data):
-        pass
+#     def store_file(self, file_data):
+#         pass
 
-    def get_file(self, coded_fragments, file_size):
-        pass
+#     def get_file(self, coded_fragments, file_size):
+#         pass
 
 
 STORAGE_NODES_NUM = 4

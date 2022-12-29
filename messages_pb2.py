@@ -15,7 +15,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0emessages.proto\"%\n\x11storedata_request\x12\x10\n\x08\x66ilename\x18\x01 \x01(\t\"#\n\x0fgetdata_request\x12\x10\n\x08\x66ilename\x18\x01 \x01(\t\"0\n\x17\x66ragment_status_request\x12\x15\n\rfragment_name\x18\x01 \x01(\t\"\'\n\x0bStorageNode\x12\n\n\x02ip\x18\x01 \x01(\t\x12\x0c\n\x04port\x18\x02 \x01(\x05\"5\n\rTask11Request\x12\x11\n\tfile_uuid\x18\x01 \x01(\t\x12\x11\n\tfile_data\x18\x02 \x01(\x0c\"!\n\x0eTask11Response\x12\x0f\n\x07success\x18\x01 \x01(\x08\"^\n\rTask12Request\x12\x0f\n\x07\x66ile_id\x18\x01 \x01(\x04\x12\x11\n\tfile_data\x18\x02 \x01(\x0c\x12)\n\x13nodes_to_forward_to\x18\x03 \x03(\x0b\x32\x0c.StorageNode\"!\n\x0eTask12Response\x12\x0f\n\x07success\x18\x01 \x01(\x08\"l\n\x17\x66hdfs_storedata_request\x12\x11\n\tstripe_id\x18\x01 \x01(\x04\x12\x13\n\x0b\x66ragment_id\x18\x02 \x01(\x04\x12)\n\x13nodes_to_forward_to\x18\x03 \x03(\x0b\x32\x0c.StorageNode\"2\n\x11HeartBeatResponse\x12\x0b\n\x03uid\x18\x01 \x01(\t\x12\x10\n\x08is_alive\x18\x02 \x01(\x08\"@\n\x18\x66hdfs_storedata_response\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x13\n\x0bstorage_ids\x18\x02 \x03(\t\"e\n\x18\x66ragment_status_response\x12\x15\n\rfragment_name\x18\x01 \x01(\t\x12\x12\n\nis_present\x18\x02 \x01(\x08\x12\x0f\n\x07node_id\x18\x03 \x01(\t\x12\r\n\x05\x63ount\x18\x04 \x01(\x05\"-\n\x06header\x12#\n\x0crequest_type\x18\x01 \x01(\x0e\x32\r.request_type\"f\n\x18recode_fragments_request\x12\x15\n\rfragment_name\x18\x01 \x01(\t\x12\x14\n\x0csymbol_count\x18\x02 \x01(\x05\x12\x1d\n\x15output_fragment_count\x18\x03 \x01(\x05*u\n\x0crequest_type\x12\x17\n\x13\x46RAGMENT_STATUS_REQ\x10\x00\x12\x15\n\x11\x46RAGMENT_DATA_REQ\x10\x01\x12\x1b\n\x17STORE_FRAGMENT_DATA_REQ\x10\x02\x12\x18\n\x14RECODE_FRAGMENTS_REQ\x10\x03\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0emessages.proto\"%\n\x11storedata_request\x12\x10\n\x08\x66ilename\x18\x01 \x01(\t\"#\n\x0fgetdata_request\x12\x10\n\x08\x66ilename\x18\x01 \x01(\t\"0\n\x17\x66ragment_status_request\x12\x15\n\rfragment_name\x18\x01 \x01(\t\"\'\n\x0bStorageNode\x12\n\n\x02ip\x18\x01 \x01(\t\x12\x0c\n\x04port\x18\x02 \x01(\x05\"#\n\x0eGetDataRequest\x12\x11\n\tfile_uuid\x18\x01 \x01(\t\"8\n\x10StoreDataRequest\x12\x11\n\tfile_uuid\x18\x01 \x01(\t\x12\x11\n\tfile_data\x18\x02 \x01(\x0c\"!\n\x0eTask11Response\x12\x0f\n\x07success\x18\x01 \x01(\x08\"^\n\rTask12Request\x12\x0f\n\x07\x66ile_id\x18\x01 \x01(\x04\x12\x11\n\tfile_data\x18\x02 \x01(\x0c\x12)\n\x13nodes_to_forward_to\x18\x03 \x03(\x0b\x32\x0c.StorageNode\"!\n\x0eTask12Response\x12\x0f\n\x07success\x18\x01 \x01(\x08\"l\n\x17\x66hdfs_storedata_request\x12\x11\n\tstripe_id\x18\x01 \x01(\x04\x12\x13\n\x0b\x66ragment_id\x18\x02 \x01(\x04\x12)\n\x13nodes_to_forward_to\x18\x03 \x03(\x0b\x32\x0c.StorageNode\"2\n\x11HeartBeatResponse\x12\x0b\n\x03uid\x18\x01 \x01(\t\x12\x10\n\x08is_alive\x18\x02 \x01(\x08\"@\n\x18\x66hdfs_storedata_response\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x13\n\x0bstorage_ids\x18\x02 \x03(\t\"e\n\x18\x66ragment_status_response\x12\x15\n\rfragment_name\x18\x01 \x01(\t\x12\x12\n\nis_present\x18\x02 \x01(\x08\x12\x0f\n\x07node_id\x18\x03 \x01(\t\x12\r\n\x05\x63ount\x18\x04 \x01(\x05\"-\n\x06header\x12#\n\x0crequest_type\x18\x01 \x01(\x0e\x32\r.request_type\"f\n\x18recode_fragments_request\x12\x15\n\rfragment_name\x18\x01 \x01(\t\x12\x14\n\x0csymbol_count\x18\x02 \x01(\x05\x12\x1d\n\x15output_fragment_count\x18\x03 \x01(\x05*u\n\x0crequest_type\x12\x17\n\x13\x46RAGMENT_STATUS_REQ\x10\x00\x12\x15\n\x11\x46RAGMENT_DATA_REQ\x10\x01\x12\x1b\n\x17STORE_FRAGMENT_DATA_REQ\x10\x02\x12\x18\n\x14RECODE_FRAGMENTS_REQ\x10\x03\x62\x06proto3')
 
 _REQUEST_TYPE = DESCRIPTOR.enum_types_by_name['request_type']
 request_type = enum_type_wrapper.EnumTypeWrapper(_REQUEST_TYPE)
@@ -29,7 +29,8 @@ _STOREDATA_REQUEST = DESCRIPTOR.message_types_by_name['storedata_request']
 _GETDATA_REQUEST = DESCRIPTOR.message_types_by_name['getdata_request']
 _FRAGMENT_STATUS_REQUEST = DESCRIPTOR.message_types_by_name['fragment_status_request']
 _STORAGENODE = DESCRIPTOR.message_types_by_name['StorageNode']
-_TASK11REQUEST = DESCRIPTOR.message_types_by_name['Task11Request']
+_GETDATAREQUEST = DESCRIPTOR.message_types_by_name['GetDataRequest']
+_STOREDATAREQUEST = DESCRIPTOR.message_types_by_name['StoreDataRequest']
 _TASK11RESPONSE = DESCRIPTOR.message_types_by_name['Task11Response']
 _TASK12REQUEST = DESCRIPTOR.message_types_by_name['Task12Request']
 _TASK12RESPONSE = DESCRIPTOR.message_types_by_name['Task12Response']
@@ -67,12 +68,19 @@ StorageNode = _reflection.GeneratedProtocolMessageType('StorageNode', (_message.
   })
 _sym_db.RegisterMessage(StorageNode)
 
-Task11Request = _reflection.GeneratedProtocolMessageType('Task11Request', (_message.Message,), {
-  'DESCRIPTOR' : _TASK11REQUEST,
+GetDataRequest = _reflection.GeneratedProtocolMessageType('GetDataRequest', (_message.Message,), {
+  'DESCRIPTOR' : _GETDATAREQUEST,
   '__module__' : 'messages_pb2'
-  # @@protoc_insertion_point(class_scope:Task11Request)
+  # @@protoc_insertion_point(class_scope:GetDataRequest)
   })
-_sym_db.RegisterMessage(Task11Request)
+_sym_db.RegisterMessage(GetDataRequest)
+
+StoreDataRequest = _reflection.GeneratedProtocolMessageType('StoreDataRequest', (_message.Message,), {
+  'DESCRIPTOR' : _STOREDATAREQUEST,
+  '__module__' : 'messages_pb2'
+  # @@protoc_insertion_point(class_scope:StoreDataRequest)
+  })
+_sym_db.RegisterMessage(StoreDataRequest)
 
 Task11Response = _reflection.GeneratedProtocolMessageType('Task11Response', (_message.Message,), {
   'DESCRIPTOR' : _TASK11RESPONSE,
@@ -140,8 +148,8 @@ _sym_db.RegisterMessage(recode_fragments_request)
 if _descriptor._USE_C_DESCRIPTORS == False:
 
   DESCRIPTOR._options = None
-  _REQUEST_TYPE._serialized_start=888
-  _REQUEST_TYPE._serialized_end=1005
+  _REQUEST_TYPE._serialized_start=928
+  _REQUEST_TYPE._serialized_end=1045
   _STOREDATA_REQUEST._serialized_start=18
   _STOREDATA_REQUEST._serialized_end=55
   _GETDATA_REQUEST._serialized_start=57
@@ -150,24 +158,26 @@ if _descriptor._USE_C_DESCRIPTORS == False:
   _FRAGMENT_STATUS_REQUEST._serialized_end=142
   _STORAGENODE._serialized_start=144
   _STORAGENODE._serialized_end=183
-  _TASK11REQUEST._serialized_start=185
-  _TASK11REQUEST._serialized_end=238
-  _TASK11RESPONSE._serialized_start=240
-  _TASK11RESPONSE._serialized_end=273
-  _TASK12REQUEST._serialized_start=275
-  _TASK12REQUEST._serialized_end=369
-  _TASK12RESPONSE._serialized_start=371
-  _TASK12RESPONSE._serialized_end=404
-  _FHDFS_STOREDATA_REQUEST._serialized_start=406
-  _FHDFS_STOREDATA_REQUEST._serialized_end=514
-  _HEARTBEATRESPONSE._serialized_start=516
-  _HEARTBEATRESPONSE._serialized_end=566
-  _FHDFS_STOREDATA_RESPONSE._serialized_start=568
-  _FHDFS_STOREDATA_RESPONSE._serialized_end=632
-  _FRAGMENT_STATUS_RESPONSE._serialized_start=634
-  _FRAGMENT_STATUS_RESPONSE._serialized_end=735
-  _HEADER._serialized_start=737
-  _HEADER._serialized_end=782
-  _RECODE_FRAGMENTS_REQUEST._serialized_start=784
-  _RECODE_FRAGMENTS_REQUEST._serialized_end=886
+  _GETDATAREQUEST._serialized_start=185
+  _GETDATAREQUEST._serialized_end=220
+  _STOREDATAREQUEST._serialized_start=222
+  _STOREDATAREQUEST._serialized_end=278
+  _TASK11RESPONSE._serialized_start=280
+  _TASK11RESPONSE._serialized_end=313
+  _TASK12REQUEST._serialized_start=315
+  _TASK12REQUEST._serialized_end=409
+  _TASK12RESPONSE._serialized_start=411
+  _TASK12RESPONSE._serialized_end=444
+  _FHDFS_STOREDATA_REQUEST._serialized_start=446
+  _FHDFS_STOREDATA_REQUEST._serialized_end=554
+  _HEARTBEATRESPONSE._serialized_start=556
+  _HEARTBEATRESPONSE._serialized_end=606
+  _FHDFS_STOREDATA_RESPONSE._serialized_start=608
+  _FHDFS_STOREDATA_RESPONSE._serialized_end=672
+  _FRAGMENT_STATUS_RESPONSE._serialized_start=674
+  _FRAGMENT_STATUS_RESPONSE._serialized_end=775
+  _HEADER._serialized_start=777
+  _HEADER._serialized_end=822
+  _RECODE_FRAGMENTS_REQUEST._serialized_start=824
+  _RECODE_FRAGMENTS_REQUEST._serialized_end=926
 # @@protoc_insertion_point(module_scope)

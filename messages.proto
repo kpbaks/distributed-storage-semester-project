@@ -22,7 +22,12 @@ message StorageNode
 }
 
 // Task 1.1 ---------------------------------------------------------------------------------------
-message Task11Request
+message GetDataRequest
+{
+	string file_uuid = 1; // The UUID of the file to be retrieved
+}
+
+message StoreDataRequest
 {
 	string file_uuid = 1; // The UUID of the file to be stored
 	bytes file_data = 2; // The file data

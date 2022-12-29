@@ -3,7 +3,7 @@ CREATE TABLE `file_metadata` (
    `filename` TEXT,
    `size` INTEGER,
    `content_type` TEXT,
-   -- `storage_mode` TEXT,
+   `storage_mode` TEXT,
    -- `storage_details` TEXT,
    -- `hash` TEXT,
    `created` DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -15,10 +15,6 @@ CREATE TABLE `storage_nodes` (
 	`address` TEXT,
 	`port` INTEGER
 );
-
--- A fragment is a part of a file that is stored on a storage node
--- A fragment is uniquely identified by the hash of the file it belongs to
--- and the fragment number
 
 CREATE TABLE `replicas` (
 	`replica_id` INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -1,20 +1,24 @@
 // https://zellij.dev/documentation/layouts.html
 
 layout {
-	pane {
-		command "poetry"
-		args "run" "python" "rest-server.py" "-k" "4" "-l" "2" "-m" "task1.1"
-		close_on_exit false
-		start_suspended true
-		name "rest-server"
-		size "60%"
-	}
-	// pane {
-	// 	name "client"
-	// 	close_on_exit true
-	// }
 	pane split_direction="vertical" {
 		pane {
+			command "poetry"
+			args "run" "python" "rest-server.py" "-k" "4" "-l" "1" "-m" "task2.1"
+			close_on_exit false
+			start_suspended false
+			name "rest-server"
+			size "60%"
+		}
+		pane {
+			name "client"
+			// close_on_exit true
+		}
+	}
+	
+	pane split_direction="vertical" {
+		pane split_direction="horizontal" {
+			pane {
 			command "poetry"
 			args "run" "python" "storage-node.py" "storage0"
 			name "storage0"
@@ -26,8 +30,9 @@ layout {
 			name "storage1"
 			// close_on_exit true
 		}
-	
-	pane split_direction="vertical" {
+		}
+
+		pane split_direction="vertical" {
 		pane {
 			command "poetry"
 			args "run" "python" "storage-node.py" "storage2"
@@ -41,7 +46,9 @@ layout {
 			// close_on_exit true
 		}
 	}
-}
+		}
+		
+
 }
 
 keybinds {

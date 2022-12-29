@@ -5,6 +5,7 @@ import atexit
 import logging
 import os
 import pathlib
+from pathlib import Path
 import random
 import shutil
 import string
@@ -79,17 +80,22 @@ else:
 
 context = zmq.Context()
 logger.info("Created ZMQ context")
+
 # Socket to receive Store Chunk messages from the controller
 receiver = context.socket(zmq.PULL)
 receiver.connect(pull_address)
 logger.info(f"Created zmq.PULL socket and connected to {pull_address}")
+
 # Socket to send results to the controller
 sender = context.socket(zmq.PUSH)
 sender.connect(push_address)
 logger.info(f"Created zmq.PUSH socket and connected to {push_address}")
+
 # Socket to receive Get Chunk messages from the controller
 subscriber = context.socket(zmq.SUB)
 subscriber.connect(subscriber_address)
+
+
 # Receive every message (empty subscription)
 subscriber.setsockopt(zmq.SUBSCRIBE, b"")
 logger.info(f"Created zmq.SUB socket and connected to {subscriber_address}")
@@ -153,11 +159,9 @@ def receiver_action(subscriber: zmq.Socket, sender: zmq.Socket) -> None:
         return
 
     # Parse the Protobuf message from the first frame
-    task = messages_pb2.Task11Request()
+    task = messages_pb2.StoreDataRequest()
     logger.debug(f"task: {task}")
     
-
-
     task.ParseFromString(msg[1])
     file_uuid = task.file_uuid
     file_data = task.file_data
@@ -178,29 +182,41 @@ def subscriber_action(subscriber: zmq.Socket, sender: zmq.Socket) -> None:
     msg = subscriber.recv()
 
     # Parse the Protobuf message from the first frame
-    task = messages_pb2.getdata_request()
+    task = messages_pb2.GetDataRequest()
     task.ParseFromString(msg)
 
-    filename = task.filename
-    logger.info("Data chunk request: %s" % filename)
-    # logger.info(f"Data chunk request: {filename}.{i}")
+    file_uid = task.file_uuid
+    logger.info(f"Get data request: {file_uid}")
 
-    # Try to load all fragments with this name
-    # First frame is the filename
-    frames = [bytes(filename, "utf-8")]
-    # Subsequent frames will contain the chunks' data
+    # check if the file exists
+    # f: Path = DATA_FOLDER / file_uid
+    if not (DATA_FOLDER / file_uid).exists():
+        logger.error(f"File {file_uid} not found")
+        return
+    
+    # Read the file and send it back
+    with open(f"{DATA_FOLDER}/{file_uid}", "rb") as f:
+        logger.info(f"Sending file {file_uid} back")
 
-    # iterate over all files in args.data_folder
-    for i, file in enumerate(DATA_FOLDER.glob("*")):
-        logger.debug(f"Found file [{i}] {file.name}")
-        if file.is_file() and file.name == filename:
-            logger.info(f"Found chunk {filename}, sending it back")
-            frames.append(file.read_bytes())
+        sender.send_multipart([bytes(file_uid, 'utf-8'), f.read()])
 
-    # Only send a result if at least one chunk was found
-    if len(frames) > 1:
-        logger.info(f"Sending {len(frames) - 1} chunks back")
-        sender.send_multipart(frames)
+    
+    # # Try to load all fragments with this name
+    # # First frame is the filename
+    # frames = [bytes(file_uid, "utf-8")]
+    # # Subsequent frames will contain the chunks' data
+
+    # # iterate over all files in args.data_folder
+    # for i, file in enumerate(DATA_FOLDER.glob("*")):
+    #     logger.debug(f"Found file [{i}] {file.name}")
+    #     if file.is_file() and file.name == file_uid:
+    #         logger.info(f"Found chunk {file_uid}, sending it back")
+    #         frames.append(file.read_bytes())
+
+    # # Only send a result if at least one chunk was found
+    # if len(frames) > 1:
+    #     logger.info(f"Sending {len(frames) - 1} chunks back")
+    #     sender.send_multipart(frames)
 
 
 def nuke_storage_folder() -> None:

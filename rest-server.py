@@ -22,6 +22,10 @@ from hashlib import sha256
 from pprint import pp
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
+import reedsolomon
+
+# from storage_providers.reedsolomon  import ReedSolomonStorageProvider
+
 import zmq  # For ZMQ
 # from apscheduler import Task
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -114,7 +118,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "-l",
-    "--node-losses",
+    "--max-erasures",
     type=int,
     choices=[1, 2],
     help="Number of fragments to recover",
@@ -125,7 +129,7 @@ parser.add_argument(
     type=str,
     required=True,
     choices=constants.STORAGE_MODES,
-    help="Mode of operation: raid1, erasure_coding_rs, erasure_coding_rlnc",
+    help="Mode of operation: raid1, reedsolomon, erasure_coding_rlnc",
 )
 
 
@@ -170,6 +174,19 @@ def download_file(file_id: int) -> Response:
     logger.info(
         f"Received request to download file {file_id}. Storage mode is {args.mode}"
     )
+
+    match args.mode:
+        case "task1.1":
+            return redirect(f"/files/{file_id}/task1.1", code=307)
+        case "task1.2":
+            return redirect(f"/files/{file_id}/task1.2", code=307)
+        case "task2.1":
+            return redirect(f"/files/{file_id}/task2.1", code=307)
+        case "task2.2":
+            return redirect(f"/files/{file_id}/task2.2", code=307)
+        case _:
+            return make_response({"message": "Invalid mode"}, 400)
+
 
     db = get_db()
     cursor = db.execute("SELECT * FROM `file` WHERE `id`=?", [file_id])
@@ -294,7 +311,6 @@ def download_file(file_id: int) -> Response:
 #     print("File: %s" % f)
 
 #     return make_response(f)
-
 
 # @app.route("/files_mp", methods=["POST"])
 # def add_files_multipart():
@@ -445,8 +461,6 @@ def time_to_wait(filesize: int) -> int:
 @app.route("/files_task1_1", methods=["POST"])
 def add_files_task1_1() -> Response:
 
-    # breakpoint()
-
     filename, content_type, file_data, filesize = extract_fields_from_post_request(
         request
     )
@@ -460,7 +474,7 @@ def add_files_task1_1() -> Response:
     file_uuid = uuid.uuid4()
 
     def send_file_to_node(node: StorageNode):
-        request = messages_pb2.Task11Request()
+        request = messages_pb2.StoreDataRequest()
 
         request.file_uuid = str(file_uuid)
         request.file_data = file_data
@@ -497,12 +511,13 @@ def add_files_task1_1() -> Response:
             `file_metadata`(
                 `filename`,
                 `size`,
-                `content_type`
+                `content_type`,
+                `storage_mode`,
             )
         VALUES
-            (?,?,?)
+            (?,?,?,?)
         """,
-        (filename, filesize, content_type),
+        (filename, filesize, content_type, "replication"),
     )
 
     db.commit()
@@ -551,8 +566,78 @@ def add_files_task2_1() -> Response:
         request
     )
 
-    return make_response({"id": cursor.lastrowid}, 201)
+    l: int = args.max_erasures
+    data = bytearray(file_data)
 
+    fragment_names, fragment_data = reedsolomon.store_file(data, l, send_task_socket, response_socket)
+    # file_uuid = uuid.uuid4()
+    logger.info(f"fragment_data: {fragment_data}")
+
+    def send_file_to_node(node: StorageNode, fragment_name: str, fragment_data: bytes) -> None:
+        request = messages_pb2.StoreDataRequest()
+        logger.debug(f"Sending file to node {node.uid} with fragment name {fragment_name}")
+
+        request.file_uuid = str(fragment_name)
+        request.file_data = fragment_data
+
+        serialized_request = request.SerializeToString()
+
+        send_task_socket.send_multipart(
+            [str(node.uid).encode("UTF-8"), serialized_request]
+        )
+
+    storage_nodes = get_storage_nodes_from_db()
+
+    for node, fragment_name, fragment in zip(storage_nodes, fragment_names, fragment_data):
+        send_file_to_node(node, fragment_name, fragment)
+
+    for _ in range(constants.TOTAL_NUMBER_OF_STORAGE_NODES):
+        resp = response_socket.recv_string()
+        print("Received: %s" % resp)
+
+    db = get_db()
+    cursor = db.execute(
+        """
+        INSERT INTO
+            `file_metadata`(
+                `filename`,
+                `size`,
+                `content_type`,
+                `storage_mode`
+            )
+        VALUES
+            (?,?,?,?)
+        """,
+        (filename, filesize, content_type, "reedsolomon"),
+    )
+
+    db.commit()
+
+    file_id: int = cursor.lastrowid
+
+    for node in storage_nodes:
+        db.execute(
+            f"""
+        INSERT INTO
+            `replicas` (
+                `file_metadata_id`,
+                'storage_node_id'
+            )
+        VALUES (
+            (SELECT file_metadata_id FROM file_metadata WHERE file_metadata_id = ?),
+            (SELECT storage_node_id FROM storage_nodes WHERE uid = ?)
+        )
+        """,
+            (file_id, node.uid),
+        )
+
+    db.commit()
+
+    filedata_return = reedsolomon.get_file(fragment_names, l, filesize, data_req_socket, response_socket)
+    logger.info(f"filedata_return: {filedata_return}")
+
+    return make_response({"id": file_id}, 201)
+    
 
 @app.route("/files_task2.2", methods=["POST"])
 def add_files_task2_2() -> Response:
@@ -644,80 +729,23 @@ def add_files() -> Response:
     return make_response({"id": cursor.lastrowid}, 201)
 
 
-# @app.route("/services/rlnc_repair", methods=["GET"])
-# def rlnc_repair():
-#     # Retrieve the list of files stored using RLNC from the database
-#     db = get_db()
-#     cursor = db.execute(
-#         "SELECT `id`, `storage_details`, `size` FROM `file` WHERE `storage_mode`='erasure_coding_rlnc'"
-#     )
-#     if not cursor:
-#         return make_response({"message": "Error connecting to the database"}, 500)
+@app.route('/services/rs_repair',  methods=['GET'])
+def rs_repair() -> Response:
+    #Retrieve the list of files stored using Reed-Solomon from the database
+    db = get_db()
+    cursor = db.execute("SELECT `id`, `storage_details`, `size` FROM `file` WHERE `storage_mode`='reedsolomon'")
+    if not cursor: 
+        return make_response({"message": "Error connecting to the database"}, 500)
+    
+    rs_files = cursor.fetchall()
+    rs_files = [dict(file) for file in rs_files]
 
-#     rlnc_files = cursor.fetchall()
-#     rlnc_files = [dict(file) for file in rlnc_files]
+    fragments_missing, fragments_repaired = reedsolomon.start_repair_process(rs_files,
+                                                                             repair_socket,
+                                                                             repair_response_socket)
 
-#     fragments_missing, fragments_repaired = rlnc.start_repair_process(
-#         rlnc_files, repair_socket, repair_response_socket
-#     )
-
-#     return make_response(
-#         {
-#             "fragments_missing": fragments_missing,
-#             "fragments_repaired": fragments_repaired,
-#         }
-#     )
-
-
-#
-
-
-# @app.route("/services/rs_repair", methods=["GET"])
-# def rs_repair():
-#     # Retrieve the list of files stored using Reed-Solomon from the database
-#     db = get_db()
-#     cursor = db.execute(
-#         "SELECT `id`, `storage_details`, `size` FROM `file` WHERE `storage_mode`='erasure_coding_rs'"
-#     )
-#     if not cursor:
-#         return make_response({"message": "Error connecting to the database"}, 500)
-
-#     rs_files = cursor.fetchall()
-#     rs_files = [dict(file) for file in rs_files]
-
-#     fragments_missing, fragments_repaired = reedsolomon.start_repair_process(
-#         rs_files, repair_socket, repair_response_socket
-#     )
-
-#     return make_response(
-#         {
-#             "fragments_missing": fragments_missing,
-#             "fragments_repaired": fragments_repaired,
-#         }
-#     )
-
-
-#
-
-
-# def rs_automated_repair():
-#     print("Running automated Reed-Solomon repair process")
-#     with app.app_context():
-#         rs_repair()
-
-
-#
-
-
-# Create a scheduler and post a repair job every 60 seconds
-# scheduler = BackgroundScheduler()
-# scheduler.add_job(func=rs_automated_repair, trigger="interval", seconds=60)
-# Temporarily disabled scheduler
-# scheduler.start()
-
-# Shut down the scheduler when exiting the app
-# atexit.register(lambda: scheduler.shutdown())
-
+    return make_response({"fragments_missing": fragments_missing,
+                          "fragments_repaired": fragments_repaired})
 
 @app.errorhandler(500)
 def server_error(e) -> Response:
