@@ -1,22 +1,20 @@
+import itertools as it
+import logging
 import math
 import os
-import sys
 import random
 import sys
+import uuid
 from pprint import pp
 from typing import List, Tuple
-import logging
-import itertools as it
-import uuid
-
-
 
 import zmq
 
-import messages_pb2
-from storage_provider import StorageProvider
+import messages_pb2 as protobuf_msgs
+from data_models.storage_id import StorageId
+from storage_providers.storage_provider import StorageProvider
 from utils import random_string, remove_duplicate_from_list
-from storage_id import StorageId
+
 
 class Raid1StorageProvider(StorageProvider):
     """
@@ -55,15 +53,14 @@ class Raid1StorageProvider(StorageProvider):
         self.data_req_socket = data_req_socket
 
         self.logger = logging.getLogger("raid1_storage_provider")
-        
+
         if os.environ.get("DEBUG"):
             self.logger.setLevel(logging.DEBUG)
         else:
             self.logger.setLevel(logging.INFO)
 
-
-
     # def store_file(self, file_data: bytes) -> Tuple[List[str], List[str]]:
+
     def store_file(self, file_data: bytes, uid: uuid.UUID) -> List[List[StorageId]]:
         """
         Implements storing a file with RAID 1 using 4 storage nodes.
@@ -87,26 +84,24 @@ class Raid1StorageProvider(StorageProvider):
 
         # [ [ (0, 0), (0, 1) ], [ (1,0), (1, 1) ]]
 
-
-
         list_of_storage_ids = [
             [
                 StorageId(uid, stripe_index=stripe_index, replica_index=replica_index)
                 for stripe_index in range(self.replication_factor)
-            ] for replica_index in range(self.replication_factor)
+            ]
+            for replica_index in range(self.replication_factor)
         ]
 
         self.logger.debug(f"list_of_storage_ids: {list_of_storage_ids}")
 
-
         for storage_ids in list_of_storage_ids:
-            assert len(storage_ids) == len(list_of_stripe_data), f"storage_ids: {storage_ids} must have length {len(list_of_stripe_data)}"
+            assert len(storage_ids) == len(
+                list_of_stripe_data
+            ), f"storage_ids: {storage_ids} must have length {len(list_of_stripe_data)}"
             for stripe, storage_id in zip(list_of_stripe_data, storage_ids):
-                task = messages_pb2.storedata_request()
+                task = protobuf_msgs.storedata_request()
                 task.filename = str(storage_id)
-                self.send_task_socket.send_multipart(
-                    [task.SerializeToString(), stripe]
-                )
+                self.send_task_socket.send_multipart([task.SerializeToString(), stripe])
 
         num_requests: int = self.replication_factor**2
         self.logger.info(f"Waiting for {num_requests} responses")
@@ -118,7 +113,6 @@ class Raid1StorageProvider(StorageProvider):
 
         return list_of_storage_ids
 
-
     def get_file(self, list_of_storage_ids: List[List[StorageId]]) -> bytes:
         """
         Implements retrieving a file that is stored with RAID 1 using 4 storage nodes.
@@ -127,21 +121,26 @@ class Raid1StorageProvider(StorageProvider):
         """
 
         replication_factor = len(list_of_storage_ids)
-        assert replication_factor in [2,3,4], f"Raid1StorageProvider only supports 2, 3 or 4 replicas, but {replication_factor} were requested"
+        assert replication_factor in [
+            2,
+            3,
+            4,
+        ], f"Raid1StorageProvider only supports 2, 3 or 4 replicas, but {replication_factor} were requested"
         self.logger.debug(f"get_file: list_of_stripe_uids: {list_of_storage_ids}")
 
-
         # Select a random stripe from each stripe set
-        storage_ids_to_request: List[StorageId] = [random.choice(storage_ids) for storage_ids in list_of_storage_ids]
+        storage_ids_to_request: List[StorageId] = [
+            random.choice(storage_ids) for storage_ids in list_of_storage_ids
+        ]
         self.logger.debug(f"storage_ids_to_request: {storage_ids_to_request}")
-        
+
         # Request the stripes in parallel
         for storage_id in storage_ids_to_request:
-            task = messages_pb2.getdata_request()
+            task = protobuf_msgs.getdata_request()
             task.filename = str(storage_id)
             self.data_req_socket.send(task.SerializeToString())
 
-        # Receive all stripes and collect them 
+        # Receive all stripes and collect them
         # file_data_parts = [None] * replication_factor
         file_data_parts = []
         for _ in range(replication_factor):
@@ -157,14 +156,12 @@ class Raid1StorageProvider(StorageProvider):
             file_data_parts.append((storage_id_received, stripe_data))
             # file_data_parts[storage_id_received.stripe_index] = stripe_data
 
-        #breakpoint()
+        # breakpoint()
         file_data_parts.sort(key=lambda x: x[0].stripe_index)
 
-
-        
         assert None not in file_data_parts, "Not all stripes received successfully"
         self.logger.info("All stripes received successfully")
-        
+
         # Concatenates the stripes in one bytes object
         file_data = b"".join([stripe_data for _, stripe_data in file_data_parts])
 

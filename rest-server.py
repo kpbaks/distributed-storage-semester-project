@@ -23,21 +23,21 @@ from pprint import pp
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import zmq  # For ZMQ
-from apscheduler import Task
+# from apscheduler import Task
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.schedulers.sync import Scheduler
+# from apscheduler.schedulers.sync import Scheduler
 from apscheduler.triggers.interval import IntervalTrigger
 # from apscheduler.schedulers.background import \
 #     BackgroundScheduler  # automated repair
 from flask import Flask, Response, g, make_response, request, send_file
 
 import messages_pb2  # Generated Protobuf messages
-import rlnc
+# import rlnc
 from constants import STORAGE_MODES
+# from reedsolomon import ReedSolomonStorageProvider
+from data_models.storage_id import StorageId
 from raid1 import Raid1StorageProvider
-from reedsolomon import ReedSolomonStorageProvider
-from storage_id import StorageId
-from utils import create_logger, flatten_list, is_raspberry_pi
+from utils import create_logger, flatten_list, is_raspberry_pi, get_log_level_name_from_effective_level
 
 
 def get_db(filename: str = "files.db") -> sqlite3.Connection:
@@ -51,17 +51,15 @@ def get_db(filename: str = "files.db") -> sqlite3.Connection:
     return g.db
 
 
-def close_db(e=None) -> None:
-    db = g.pop("db", None)
+name_of_this_script: str = os.path.basename(__file__)
+# remove .py extension if it exists
+if name_of_this_script.endswith(".py"):
+    name_of_this_script = name_of_this_script[:-3]
 
-    if db is not None:
-        db.close()
 
+logger = create_logger(name_of_this_script)
 
-logger = create_logger()
-logger.info(f"log level is {logger.getEffectiveLevel()}")
-
-logger.info("Initializing ZMG sockets ...")
+logger.info("Initializing ZMQ sockets ...")
 # Initiate ZMQ sockets
 context = zmq.Context()
 
@@ -95,13 +93,12 @@ sock_dealer_request_heartbeat.bind("tcp://*:5570")
 # Set the timeout for the recv() method to 1 second
 sock_dealer_request_heartbeat.RCVTIMEO = 1000
 
-logger.info("Initializing ZMG sockets ... DONE")
+logger.info("Initializing ZMQ sockets ... DONE")
 # Wait for all workers to start and connect.
 time.sleep(1)
 logger.info("Listening to ZMQ messages on tcp://*:5558 and tcp://*:5561")
 
 
-name_of_this_script: str = os.path.basename(__file__)
 parser = argparse.ArgumentParser(prog=name_of_this_script)
 
 
@@ -136,16 +133,22 @@ logger.debug("Instantiating Flask app")
 # Instantiate the Flask app (must be before the endpoint functions)
 app = Flask(__name__)
 # Close the DB connection after serving the request
-app.teardown_appcontext(close_db)
+# app.teardown_appcontext(close_db)
 
 
-# @app.route("/")
-# def hello():
-#     return make_response({"message": "Hello World!"})
+@app.teardown_appcontext
+def close_db(e=None) -> None:
+    db = g.pop("db", None)
+
+    if db is not None:
+        db.close()
 
 
 @app.route("/files", methods=["GET"])
-def list_files():
+def list_files() -> Response:
+    """
+    Get metadata for all files in storage system.
+    """
     db = get_db()
     cursor = db.execute("SELECT * FROM `file`")
     if not cursor:
@@ -384,7 +387,9 @@ def download_file(file_id: int) -> Response:
 
 @app.route("/files", methods=["POST"])
 def add_files() -> Response:
-    """Add a new file to the storage system"""
+    """
+    Add a new file to the storage system.
+    """
     payload: Any | None = request.get_json()
     filename: str = payload.get("filename")
     content_type: str = payload.get("content_type")
@@ -413,6 +418,8 @@ def add_files() -> Response:
                     storage_ids.append(storage_id)
 
             logger.debug(f"Storage details: {storage_ids}")
+        case "fake-hdfs":
+            pass
 
         case "erasure_coding_rs":
             pass
@@ -519,33 +526,37 @@ def add_files() -> Response:
 
 
 @app.errorhandler(500)
-def server_error(e):
-    logging.exception("Internal error: %s", e)
+def server_error(e) -> Response:
+    logger.exception("Internal error: %s", e)
     return make_response({"error": str(e)}, 500)
 
 
 def task_send_heartbeat_request() -> None:
-    sock_dealer_request_heartbeat.send_string("heartbeat")
+    logger.info("Sending heartbeat request to storage nodes ...")
+    # sock_dealer_request_heartbeat.send_string("heartbeat")
 
     storage_nodes_online: Set[uuid.UUID] = {}
+    return
 
-    # We have 4 nodes in total
-    num_timeout_reached = 0
-    for i in range(4):
-        try:
-            reply = sock_dealer_request_heartbeat.recv()
-        except zmq.ZmqError:
-            # If the timeout of 1000 ms is reached we deem the node as being offline
-            num_timeout_reached += 1
-            logger.warn(f"Timeout reached [{num_timeout_reached}]")
-        else:
-            # Expect reply to be of type HeartBeatResponse
-            resp = messages_pb2.HeartBeatResponse()
-            resp.ParseFromString(reply)
-            uid = uuid.UUID(bytes=resp.uid)
-            storage_nodes_online = storage_nodes_online & uid
+    # # We have 4 nodes in total
+    # num_timeout_reached = 0
+    # for i in range(4):
+    #     pass
+    #     # try:
+    #     #     reply = sock_dealer_request_heartbeat.recv()
+    #     # except zmq.ZmqError:
+    #     #     # If the timeout of 1000 ms is reached we deem the node as being offline
+    #     #     num_timeout_reached += 1
+    #     #     logger.warn(f"Timeout reached [{num_timeout_reached}]")
+    #     # else:
+    #     #     # Expect reply to be of type HeartBeatResponse
+    #     #     resp = messages_pb2.HeartBeatResponse()
+    #     #     resp.ParseFromString(reply)
+    #     #     uid = uuid.UUID(bytes=resp.uid)
+    #     #     storage_nodes_online = storage_nodes_online & uid
 
-    # Figure out which storage nodes have not replied
+    # # Figure out which storage nodes have not replied
+    # logger.info("Sending heartbeat request to storage nodes ... DONE")
 
 
 scheduler = BackgroundScheduler()
@@ -560,16 +571,21 @@ scheduler.add_job(
     replace_existing=True,
 )
 
+app.before_first_request(scheduler.start)
+app.before_first_request(lambda: logger.error("TODO: figure out which storage nodes are online."))
 
-@app.before_first_request
-def activate_scheduler():
-    scheduler.start()
+# @app.before_first_request
+# def activate_scheduler():
+#     scheduler.start()
 
 
-@app.teardown_appcontext
-def shutdown_scheduler(exception=None):
-    scheduler.shutdown()
+# @app.teardown_appcontext
+# def shutdown_scheduler(exception=None):
+#     logger.info("Shutting down background job scheduler")
+#     scheduler.shutdown()
 
+
+atexit.register(scheduler.shutdown)
 
 # with Scheduler() as scheduler:
 #     # Add schedules, configure tasks here

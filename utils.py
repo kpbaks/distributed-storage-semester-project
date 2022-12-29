@@ -106,7 +106,7 @@ def create_logger(name: str | None = None, level: int = logging.INFO) -> logging
     Returns a logger with the given name and log level.
     """
 
-    format: str = f"[{YELLOW}%(levelname)s{NC}] (%(name)s) - %(message)s"
+    format: str = f"[{YELLOW}%(levelname)s{NC}] ({GREEN}%(name)s{NC}) - %(message)s"
 
     # see if DEBUG is defined as an env var
     if os.environ.get("DEBUG"):
@@ -115,8 +115,25 @@ def create_logger(name: str | None = None, level: int = logging.INFO) -> logging
         logging.basicConfig(level=logging.INFO, format=format)
 
     logger = logging.getLogger(name or __name__)
-    # logger.setLevel(level)
+
+    logger.info(f"Log level is {get_log_level_name_from_effective_level(logger.getEffectiveLevel())}")
     return logger
+
+
+def get_log_level_name_from_effective_level(level: int) -> str:
+    match level:
+        case logging.DEBUG:
+            return "DEBUG"
+        case logging.INFO:
+            return "INFO"
+        case logging.WARNING:
+            return "WARNING"
+        case logging.ERROR:
+            return "ERROR"
+        case logging.CRITICAL:
+            return "CRITICAL"
+        case _:
+            return "UNKNOWN"
 
 
 def get_interface_ipaddress(network: str) -> str:

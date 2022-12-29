@@ -1,3 +1,4 @@
+import uuid
 from dataclasses import dataclass
 
 
@@ -6,6 +7,7 @@ class StorageNode:
     id: str
     address: str
     port: int
+    uid: uuid.UUID
     is_online: bool
 
     # def __str__(self) -> str:
