@@ -404,11 +404,7 @@ def main_loop() -> None:
     # #
 
 
-
-
 if __name__ == '__main__':
     setup(args.master_node_addr)
     logger.info("Starting main loop")
     main_loop()
-
-
