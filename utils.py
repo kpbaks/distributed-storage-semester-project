@@ -140,3 +140,4 @@ def get_interface_ipaddress(network: str) -> str:
     addr = subprocess.check_output(["ip", "addr", "show", network]).decode("utf-8")
     addr = addr.split("inet ")[1].split("/")[0]
     return addr
+\n
