@@ -2,22 +2,21 @@
 
 layout {
 	pane {
-		command "python"
-		args "rest-server.py" "-k" "4" "-l" "2" "-m" "raid1"
+		command "python3"
+		args "rest-server.py"
 		close_on_exit false
 		start_suspended false
 		name "rest-server"
-		size "60%"
 	}
 	pane split_direction="vertical" {
 		pane {
-			command "python"
+			command "python3"
 			args "storage-node.py" "storage-node0"
 			name "storage-node0"
 			close_on_exit false
 		}
 		pane {
-			command "python"
+			command "python3"
 			args "storage-node.py" "storage-node1"
 			name "storage-node1"
 			close_on_exit false
@@ -25,13 +24,13 @@ layout {
 	}
 	pane split_direction="vertical" {
 		pane {
-			command "python"
+			command "python3"
 			args "storage-node.py" "storage-node2"
 			name "storage-node2"
 			close_on_exit false
 		}
 		pane {
-			command "python"
+			command "python3"
 			args "storage-node.py" "storage-node3"
 			name "storage-node3"
 			close_on_exit false

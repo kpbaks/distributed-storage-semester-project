@@ -3,11 +3,17 @@ syntax = "proto3";
 message storedata_request
 {
     string filename = 1;
+    bool is_delegate = 2;
+    int32 replications = 3;
+    repeated string nodes_visited = 4;
+    int32 send_to_node = 5;
+    string storage_mode = 6;
 }
 
 message getdata_request
 {
     string filename = 1;
+    string storage_mode = 2;
 }
 
 message fragment_status_request
