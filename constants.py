@@ -8,10 +8,14 @@ NC = "\033[0m"  # No Color
 
 
 STORAGE_MODES: List[str] = [
-    "raid1",
-    "erasure_coding_rs",
-    "erasure_coding_rlnc",
-    "fake-hdfs",
+    "task1.1",
+    "task1.2",
+    "task2.1",
+    "task2.2",
+    # "raid1",
+    # "erasure_coding_rs",
+    # "erasure_coding_rlnc",
+    # "fake-hdfs",
 ]
 
 

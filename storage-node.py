@@ -14,7 +14,7 @@ import time
 import zmq
 
 import messages_pb2
-import rlnc
+
 from utils import is_raspberry_pi, random_string, write_file, create_logger, get_interface_ipaddress
 import constants
 
@@ -43,14 +43,14 @@ MAX_CHUNKS_PER_FILE = 10
 try:
     filename = DATA_FOLDER / ".node_id"
     with open(filename, "r") as id_file:
-        node_id = id_file.read()
-        logger.info(f"ID read from file: {node_id}")
+        NODE_UID = id_file.read()
+        logger.info(f"ID read from file: {NODE_UID}")
 except FileNotFoundError:
     # This is OK, this must be the first time the node was started
     NODE_UID: uuid.UUID = uuid.uuid4()
     # Save it to file for the next start
     with open(filename, "w") as id_file:
-        id_file.write(NODE_UID)
+        id_file.write(str(NODE_UID))
         logger.info(f"New ID generated and saved to file: {NODE_UID}")
 
 
@@ -73,7 +73,7 @@ else:
     subscriber_address = "tcp://localhost:5559"
     repair_subscriber_address = "tcp://localhost:5560"
     repair_sender_address = "tcp://localhost:5561"
-    server_sock_task_1_2_address = f"tcp://localhost:{5562 + args.server_sock_port}"
+    server_sock_task_1_2_address = f"tcp://localhost:5562"
     sock_router_heartbeat_request_addr = f"tcp://localhost:{constants.PORT_HEARTBEAT}"
 
 
@@ -99,20 +99,24 @@ repair_subscriber = context.socket(zmq.SUB)
 repair_subscriber.connect(repair_subscriber_address)
 logger.info(f"Created zmq.SUB socket and connected to {repair_subscriber_address}")
 # Receive messages destined for all nodes
+
+
 repair_subscriber.setsockopt(zmq.SUBSCRIBE, b"all_nodes")
 # Receive messages destined for this node
-repair_subscriber.setsockopt(zmq.SUBSCRIBE, node_id.encode("UTF-8"))
+repair_subscriber.setsockopt(zmq.SUBSCRIBE, NODE_UID.encode("UTF-8"))
+
+
 # Socket to send repair results to the controller
 repair_sender = context.socket(zmq.PUSH)
 repair_sender.connect(repair_sender_address)
 logger.info(f"Created zmq.PUSH socket and connected to {repair_sender_address}")
 
 subscriber_sock_task1_2 = context.socket(zmq.SUB)
-subscriber_sock_task1_2.setsocketopt(zmq.SUBSCRIBE, b"")
+subscriber_sock_task1_2.setsockopt(zmq.SUBSCRIBE, b"all_nodes")
 subscriber_sock_task1_2.connect(server_sock_task_1_2_address)
 
-sock_router_heartbeat_request = context.socket(zmq.ROUTER)
-sock_router_heartbeat_request.bind(sock_router_heartbeat_request_addr)
+# sock_router_heartbeat_request = context.socket(zmq.ROUTER)
+# sock_router_heartbeat_request.bind(sock_router_heartbeat_request_addr)
 # sock_sub_heartbeat_request.setsocketopt(zmq.SUBSCRIBE, constants.TOPIC_HEARTBEAT.encode("utf-8"))
 
 
@@ -123,15 +127,13 @@ for sock in [
     receiver,
     subscriber,
     repair_subscriber,
-    sock_router_heartbeat_request
+    # sock_router_heartbeat_request
 ]:
     poller.register(sock, zmq.POLLIN)
 
 # poller.register(receiver, zmq.POLLIN)
 # poller.register(subscriber, zmq.POLLIN)
 # poller.register(repair_subscriber, zmq.POLLIN)
-
-
 
 
 def receiver_action(subscriber: zmq.Socket, sender: zmq.Socket) -> None:
@@ -151,26 +153,21 @@ def receiver_action(subscriber: zmq.Socket, sender: zmq.Socket) -> None:
         return
 
     # Parse the Protobuf message from the first frame
-    task = messages_pb2.storedata_request()
-    task.ParseFromString(msg[0])
+    task = messages_pb2.Task11Request()
+    logger.debug(f"task: {task}")
+    
 
-    # The data starts with the second frame, iterate and store all frames
-    for i in range(0, len(msg) - 1):
-        data = msg[1 + i]
 
-        # Outcomment to print without chunk index
-        # print(f"Chunk to save: {task.filename}.{i}, size: {len(data)} bytes")
-        print(f"Chunk to save: {task.filename}, size: {len(data)} bytes")
+    task.ParseFromString(msg[1])
+    file_uuid = task.file_uuid
+    file_data = task.file_data
 
-        logger.debug(f"data: {data}")
-
-        # Store the chunk with the given filename
-        chunk_local_path: str = f"{DATA_FOLDER}/{task.filename}"
-        if write_file(data, chunk_local_path) is not None:
-            logger.info(f"Chunk saved to {chunk_local_path}")
+    with open(f"{DATA_FOLDER}/{file_uuid}", "wb") as f:
+        f.write(file_data)
+        logger.info(f"File {file_uuid} saved to {DATA_FOLDER}")
 
     # Send response (just the file name)
-    sender.send_string(task.filename)
+    sender.send_string(task.file_uuid)
 
 
 # This function is called when a message is received on the subscriber socket
@@ -212,7 +209,7 @@ def nuke_storage_folder() -> None:
         shutil.rmtree(DATA_FOLDER)
 
 
-atexit.register(nuke_storage_folder)
+# atexit.register(nuke_storage_folder)
 
 def setup(master_node_addr: str) -> None:
     """
@@ -246,16 +243,16 @@ def main_loop() -> None:
             logger.info("Received message on subscriber socket")
             subscriber_action(subscriber, sender)
 
-        if sock_router_heartbeat_request in socks:
-            message = sock_router_heartbeat_request.recv_multipart()
-            # Extract the identity of the sender
-            sender_id = message[0]
-            logger.info(f"Received heartbeat request from {sender_id}")
+        # if sock_router_heartbeat_request in socks:
+        #     message = sock_router_heartbeat_request.recv_multipart()
+        #     # Extract the identity of the sender
+        #     sender_id = message[0]
+        #     logger.info(f"Received heartbeat request from {sender_id}")
 
-            # TODO: create response
-            response = messages_pb2.HeartBeatResponse()
-            # Send a reply to the sender
-            sock_router_heartbeat_request.send_multipart([sender_id, b"reply"])
+        #     # TODO: create response
+        #     response = messages_pb2.HeartBeatResponse()
+        #     # Send a reply to the sender
+        #     sock_router_heartbeat_request.send_multipart([sender_id, b"reply"])
 
 
     #     if repair_subscriber in socks:
@@ -405,6 +402,6 @@ def main_loop() -> None:
 
 
 if __name__ == '__main__':
-    setup(args.master_node_addr)
+    # setup(args.master_node_addr)
     logger.info("Starting main loop")
     main_loop()

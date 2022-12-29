@@ -29,16 +29,18 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 # from apscheduler.schedulers.background import \
 #     BackgroundScheduler  # automated repair
-from flask import Flask, Response, Request, g, make_response, request, send_file, redirect
+from flask import (Flask, Request, Response, g, make_response, redirect,
+                   request, send_file)
 
-import messages_pb2  # Generated Protobuf messages
 # import rlnc
 import constants
+import messages_pb2  # Generated Protobuf messages
 # from reedsolomon import ReedSolomonStorageProvider
 from data_models.storage_id import StorageId
-from raid1 import Raid1StorageProvider
-from utils import create_logger, flatten_list, is_raspberry_pi, get_log_level_name_from_effective_level
 from data_models.storage_node import StorageNode
+from raid1 import Raid1StorageProvider
+from utils import (create_logger, flatten_list,
+                   get_log_level_name_from_effective_level, is_raspberry_pi)
 
 
 def get_db(filename: str = "files.db") -> sqlite3.Connection:
@@ -201,7 +203,7 @@ def download_file(file_id: int) -> Response:
 
             # reshape the list of filenames into a 2D array of size (replication_factor, replication_factor)
             list_of_storage_ids: List[List[StorageId]] = [
-                storage_ids[i : i + replication_factor]
+                storage_ids[i: i + replication_factor]
                 for i in range(0, len(storage_ids), replication_factor)
             ]
 
@@ -386,7 +388,6 @@ def download_file(file_id: int) -> Response:
 #     return make_response({"id": cursor.lastrowid}, 201)
 
 
-
 def get_storage_nodes_from_db() -> list[StorageNode]:
     """
     Returns a list of storage nodes from the database.
@@ -404,36 +405,59 @@ def extract_fields_from_post_request(request: Request) -> tuple[str, str, bytes,
     """
     Extracts the filename, content type and file data from the request.
     """
+    pp(request)
 
-    payload: Any | None = request.get_json()
+    payload = request.form
+
+    """
+    files = request.files
+    
+    # Make sure there is a file in the request
+    if not files or not files.get('file'):
+        logging.error("No file was uploaded in the request!")
+        return make_response("File missing!", 400)
+    
+    file = files.get('file')
+    filename = file.filename
+    content_type = file.mimetype
+    data = bytearray(file.read())
+    size = len(data)
+    """
+
+    #payload: Any | None = request.get_json()
     filename: str = payload.get("filename")
     content_type: str = payload.get("content_type")
     file_data: bytes = base64.b64decode(payload.get("contents"))
-    size = len(file_data) # The amount of bytes in the file
+    size = len(file_data)  # The amount of bytes in the file
 
     return filename, content_type, file_data, size
 
+
 def time_to_wait(filesize: int) -> int:
     """
-    Calculates the time to wait for a file to be stored in one node, 
+    Calculates the time to wait for a file to be stored in one node,
     assuming that the network can take 10 mbps, and the filesize is in bytes.
     """
 
-    return (filesize*8) // 10**7
+    return (filesize * 8) // 10**7
 
 
-@app.route("/files_task1.1", methods=["POST"])
+@app.route("/files_task1_1", methods=["POST"])
 def add_files_task1_1() -> Response:
-    filename, content_type, file_data, filesize = extract_fields_from_post_request(request)
+
+    # breakpoint()
+
+    filename, content_type, file_data, filesize = extract_fields_from_post_request(
+        request
+    )
 
     k: int = args.replication_factor
 
     storage_nodes: List[StorageNode] = get_storage_nodes_from_db()
     # Create list of replica # of IP addresses
     chosen_storage_nodes = random.sample(storage_nodes, k)
-    
-    file_uuid = uuid.uuid4()
 
+    file_uuid = uuid.uuid4()
 
     def send_file_to_node(node: StorageNode):
         request = messages_pb2.Task11Request()
@@ -443,80 +467,67 @@ def add_files_task1_1() -> Response:
 
         serialized_request = request.SerializeToString()
 
-        send_task_socket.send_multipart([str(node.uid).encode('UTF-8'), serialized_request])
+        send_task_socket.send_multipart(
+            [str(node.uid).encode("UTF-8"), serialized_request]
+        )
 
     # Send file to chosen_storage_nodes
     for node in chosen_storage_nodes:
-        send_file_to_node(node, file_data)
+        send_file_to_node(node)
 
+    for _ in range(k):
+        resp = response_socket.recv_string()
+        print("Received: %s" % resp)
+
+    """
     response_socket.setsockopt(zmq.RCVTIMEO, time_to_wait(filesize))
     for _ in range(k):
         try:
             resp = response_socket.recv_string()
-            print('Received: %s' % resp)
+            print("Received: %s" % resp)
         except zmq.ZMQError as e:
             logger.error(f"Timeout: {e}")
             return make_response("Timeout", 408)
+    """
     
     db = get_db()
-    cursor = db.execute("""
-        INSERT INTO 
+    cursor = db.execute(
+        """
+        INSERT INTO
             `file_metadata`(
                 `filename`,
                 `size`,
                 `content_type`
             )
-        VALUES 
+        VALUES
             (?,?,?)
-        """, (filename, filesize, content_type))
-    
+        """,
+        (filename, filesize, content_type),
+    )
+
     db.commit()
 
-    return make_response({"id": cursor.lastrowid}, 201)
+    file_id: int = cursor.lastrowid
 
-    
-    """
-    # Read amount of replicas, k
-    k = int(payload.get('k', 1))
+    for node in storage_nodes:
+        db.execute(
+            f"""
+        INSERT INTO
+            `replicas` (
+                `file_metadata_id`,
+                'storage_node_id'
+            )
+        VALUES (
+            (SELECT file_metadata_id FROM file_metadata WHERE file_metadata_id = ?),
+            (SELECT storage_node_id FROM storage_nodes WHERE uid = ?)
+        )
+        """,
+            (file_id, node.uid),
+        )
 
-    visit = node_ids.copy()
-    random.shuffle(visit)
+    db.commit()
 
-
-        storage_details = {
-            "filename": resp
-        }
-
-        cursor = insert_into_db(filename, size, content_type, storage_mode, storage_details)
-
-    def send_file_to_node(node_id, file_data, task, send_task_socket, response_socket):
-        # Create a header message
-        header = messages_pb2.header()
-        header.request_type = messages_pb2.STORE_FRAGMENT_DATA_REQ
-
-        # Send the file to the other node
-        send_task_socket.send_multipart([node_id.encode('UTF-8'),
-                                        header.SerializeToString(),
-                                        task.SerializeToString(),
-                                        file_data])
-
-        # Wait for a response from the other node
-        resp = response_socket.recv_string()
-        return resp
-
-
-    del_subscriber = context.socket(zmq.SUB)
-    del_subscriber.connect(pull_address_tester)
-    
-    # Receive messages destined for this node
-    del_subscriber.setsockopt(zmq.SUBSCRIBE, node_id.encode('UTF-8'))
-
-    # Socket to send results to the controller
-    del_sender = context.socket(zmq.PUSH)
-    del_sender.connect(push_address_tester)
-    """  
-
-    return make_response({"id": cursor.lastrowid}, 201)
+    return make_response({"id": file_id}, 201)
 
 
 @app.route("/files_task1.2", methods=["POST"])
@@ -524,29 +535,34 @@ def add_files_task1_2() -> Response:
     """
     Add a new file to the storage system.
     """
-    filename, content_type, file_data, filesize = extract_fields_from_post_request(request)
-
-    
+    filename, content_type, file_data, filesize = extract_fields_from_post_request(
+        request
+    )
 
     return make_response({"id": cursor.lastrowid}, 201)
+
 
 @app.route("/files_task2.1", methods=["POST"])
 def add_files_task2_1() -> Response:
     """
     Add a new file to the storage system.
     """
-    filename, content_type, file_data, filesize = extract_fields_from_post_request(request)
-
-    
+    filename, content_type, file_data, filesize = extract_fields_from_post_request(
+        request
+    )
 
     return make_response({"id": cursor.lastrowid}, 201)
+
 
 @app.route("/files_task2.2", methods=["POST"])
 def add_files_task2_2() -> Response:
-    
-    filename, content_type, file_data, filesize = extract_fields_from_post_request(request)
+
+    filename, content_type, file_data, filesize = extract_fields_from_post_request(
+        request
+    )
 
     return make_response({"id": cursor.lastrowid}, 201)
+
 
 @app.route("/files", methods=["POST"])
 def add_files() -> Response:
@@ -554,6 +570,7 @@ def add_files() -> Response:
     Add a new file to the storage system.
     """
 
+    logger.info(f"mode: {args.mode}")
     match args.mode:
         case "task1.1":
             return redirect("/files_task1.1", code=307)
@@ -607,7 +624,8 @@ def add_files() -> Response:
 
     file_hash: str = sha256(file_data).hexdigest()
     logger.debug(f"File hash: {file_hash}")
-    storage_details: str = ";".join([str(storage_id) for storage_id in storage_ids])
+    storage_details: str = ";".join(
+        [str(storage_id) for storage_id in storage_ids])
     logger.debug(f"Storage details: {storage_details}")
 
     db = get_db()
@@ -748,7 +766,9 @@ scheduler.add_job(
 )
 
 app.before_first_request(scheduler.start)
-app.before_first_request(lambda: logger.error("TODO: figure out which storage nodes are online."))
+app.before_first_request(
+    lambda: logger.error("TODO: figure out which storage nodes are online.")
+)
 
 # @app.before_first_request
 # def activate_scheduler():
@@ -774,6 +794,5 @@ atexit.register(scheduler.shutdown)
 host_local_computer = "localhost"  # Listen for connections on the local computer
 host_local_network = "0.0.0.0"  # Listen for connections on the local network
 app.run(
-    host=host_local_network if is_raspberry_pi() else host_local_computer, 
-    port=9000
+    host=host_local_network if is_raspberry_pi() else host_local_computer, port=9000
 )
