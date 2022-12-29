@@ -26,6 +26,6 @@ CREATE TABLE `fragments` (
 	`storage_node_id` INTEGER,
 	
    `created` DATETIME DEFAULT CURRENT_TIMESTAMP
-	FOREIGN KEY(file_metadata_id) REFERENCES file(file_metadata_id),
+	FOREIGN KEY(file_metadata_id) REFERENCES file_metadata(file_metadata_id),
 	FOREIGN KEY(storage_node_id) REFERENCES storage_nodes(storage_node_id)
 )

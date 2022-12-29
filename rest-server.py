@@ -33,7 +33,7 @@ from flask import Flask, Response, g, make_response, request, send_file
 
 import messages_pb2  # Generated Protobuf messages
 # import rlnc
-from constants import STORAGE_MODES
+import constants
 # from reedsolomon import ReedSolomonStorageProvider
 from data_models.storage_id import StorageId
 from raid1 import Raid1StorageProvider
@@ -121,7 +121,7 @@ parser.add_argument(
     "--mode",
     type=str,
     required=True,
-    choices=STORAGE_MODES,
+    choices=constants.STORAGE_MODES,
     help="Mode of operation: raid1, erasure_coding_rs, erasure_coding_rlnc",
 )
 
@@ -539,24 +539,24 @@ def task_send_heartbeat_request() -> None:
     return
 
     # # We have 4 nodes in total
-    # num_timeout_reached = 0
-    # for i in range(4):
-    #     pass
-    #     # try:
-    #     #     reply = sock_dealer_request_heartbeat.recv()
-    #     # except zmq.ZmqError:
-    #     #     # If the timeout of 1000 ms is reached we deem the node as being offline
-    #     #     num_timeout_reached += 1
-    #     #     logger.warn(f"Timeout reached [{num_timeout_reached}]")
-    #     # else:
-    #     #     # Expect reply to be of type HeartBeatResponse
-    #     #     resp = messages_pb2.HeartBeatResponse()
-    #     #     resp.ParseFromString(reply)
-    #     #     uid = uuid.UUID(bytes=resp.uid)
-    #     #     storage_nodes_online = storage_nodes_online & uid
+    num_timeout_reached = 0
+    for i in range(constants.TOTAL_NUMBER_OF_STORAGE_NODES):
+        # pass
+        try:
+            reply = sock_dealer_request_heartbeat.recv()
+        except zmq.ZmqError:
+            # If the timeout of 1000 ms is reached we deem the node as being offline
+            num_timeout_reached += 1
+            logger.warn(f"Timeout reached [{num_timeout_reached}]")
+        else:
+            # Expect reply to be of type HeartBeatResponse
+            resp = messages_pb2.HeartBeatResponse()
+            resp.ParseFromString(reply)
+            uid = uuid.UUID(bytes=resp.uid)
+            storage_nodes_online = storage_nodes_online & uid
 
-    # # Figure out which storage nodes have not replied
-    # logger.info("Sending heartbeat request to storage nodes ... DONE")
+    # Figure out which storage nodes have not replied
+    logger.info("Sending heartbeat request to storage nodes ... DONE")
 
 
 scheduler = BackgroundScheduler()

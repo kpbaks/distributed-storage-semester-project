@@ -21,7 +21,36 @@ message StorageNode
 	int32 port = 2;
 }
 
+// Task 1.1 ---------------------------------------------------------------------------------------
+message Task11Request
+{
+	string file_uuid = 1; // The UUID of the file to be stored
+	bytes file_data = 2; // The file data
+}
+
+message Task11Response
+{
+	bool success = 1; // true if the file was successfully stored
+}
+
 // Task 1.2 ---------------------------------------------------------------------------------------
+
+message Task12Request
+{
+	uint64 file_id = 1; // the primary key of the file from the `file_metadata` table
+	bytes file_data = 2; // the file data
+	// The REST server will construct this list.
+	// When a storage node receives this request, it will remove itself from the list.
+	// The list will be empty when the request reaches the last storage node.
+	repeated StorageNode nodes_to_forward_to = 3;
+}
+
+message Task12Response
+{
+	bool success = 1; // true if the file was successfully stored
+}
+
+
 message fhdfs_storedata_request
 {
 	uint64 stripe_id = 1;
