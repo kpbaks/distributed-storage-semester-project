@@ -1,10 +1,8 @@
 CREATE TABLE `file` (
-   `id` INTEGER PRIMARY KEY AUTOINCREMENT,
-   `filename` TEXT,
-   `size` INTEGER,
-   `content_type` TEXT,
-   `storage_mode` TEXT,
-   `storage_details` TEXT,
-   `hash` TEXT,
-   `created` DATETIME DEFAULT CURRENT_TIMESTAMP
+`id` INTEGER PRIMARY KEY AUTOINCREMENT,
+`filename` TEXT,
+`size` INTEGER,
+`content_type` TEXT,
+`created` DATETIME DEFAULT CURRENT_TIMESTAMP,
+`part1_filenames` TEXT, 
 );
