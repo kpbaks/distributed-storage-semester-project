@@ -1,9 +1,3 @@
-"""
-Aarhus University - Distributed Storage course - Lab 6
-
-REST API + RAID Controller
-"""
-
 import argparse
 import atexit  # unregister scheduler at app exit
 import base64
@@ -129,7 +123,7 @@ parser.add_argument(
     type=str,
     required=True,
     choices=constants.STORAGE_MODES,
-    help="Mode of operation: raid1, reedsolomon, erasure_coding_rlnc",
+    help=f"Mode of operation: {constants.STORAGE_MODES}",
 )
 
 
@@ -167,6 +161,158 @@ def list_files() -> Response:
     files = [dict(file) for file in files]
 
     return make_response({"files": files})
+
+
+def get_file_metadata_from_db(file_metadata_id: int) -> Optional[dict]:
+    """
+    Get file metadata from the database.
+    """
+    assert isinstance(file_metadata_id, int), f"file_metadata_id must be an int, not {type(file_metadata_id)}"
+    db = get_db()
+    cursor = db.execute(
+        "SELECT * FROM `file_metadata` WHERE `file_metadata_id`=?", [file_metadata_id]
+    )
+
+    if not cursor:
+        return None
+
+    file_metadata = cursor.fetchone()
+    if not file_metadata:
+        return None
+
+    # Convert file_metadata from sqlite3.Row object (which is not JSON-encodable) to
+    # a standard Python dictionary simply by casting
+    file_metadata = dict(file_metadata)
+
+    return file_metadata
+
+
+@app.route("/files/<int:file_id>/task1.1", methods=["GET"])
+def download_file_task1_1(file_id: int) -> Response:
+    """
+    Download a file from the storage system using Task 1.1.
+    """
+    logger.info(f"Received request to download file {file_id} using Task 1.1")
+
+
+    file_metadata = get_file_metadata_from_db(file_id)
+    if not file_metadata:
+        err_msg = f"File {file_id} not found"
+        logger.error(err_msg)
+        return make_response({"message": err_msg}, 404)
+
+    db = get_db()
+
+    # Get the storage nodes that have the file
+    cursor = db.execute("""
+        SELECT *
+        FROM `storage_nodes` AS sn
+        JOIN `replicas` AS r
+            ON r.file_metadata_id = ?
+        """,
+        [file_id]
+    )
+
+    if not cursor:
+        return make_response({"message": "Error connecting to the database"}, 500)
+
+    storage_nodes = cursor.fetchall()
+    # Convert storage_nodes from sqlite3.Row object (which is not JSON-encodable) to
+    # a standard Python dictionary simply by casting
+    storage_nodes = [dict(sn) for sn in storage_nodes]
+
+    # Create a client socket to send the request to the Storage Nodes
+    for storage_node in storage_nodes:
+        sock = context.socket(zmq.REQ)
+        endpoint = f"tcp://{storage_node['address']}:{storage_node['port']}"
+        logger.info(f"Connecting to Storage Node {endpoint}")
+        sock.connect(endpoint)
+        request = messages_pb2.GetDataRequest()
+        request.file_uuid = file_metadata["uid"]
+        request_serialized = request.SerializeToString()
+        sock.send_multipart([request_serialized])
+
+        # Set timeout for receiving the response from the Storage Node
+        # sock.RCVTIMEO = time_to_wait(file_metadata["size"])
+        response: List[bytes] = sock.recv_multipart()
+        response_deserialized = messages_pb2.GetDataResponse()
+        response_deserialized.ParseFromString(response[0])
+        if response_deserialized.status == messages_pb2.GetDataResponse.SUCCESS:
+            logger.info(f"Received fragment {response_deserialized.fragment_id} from Storage Node {storage_node['storage_node_id']}")
+            file_data: bytes = response_deserialized.data
+            content_type: str = file_metadata["content_type"]
+            return send_file(io.BytesIO(file_data), mimetype=content_type)
+
+        else:
+            logger.error(f"Error receiving fragment {response_deserialized.fragment_id} from Storage Node {storage_node['storage_node_id']}")
+        
+        sock.close()
+
+    return make_response({"message": "Error downloading file"}, 500)
+
+    
+
+@app.route("/files/<int:file_id>/task1.2", methods=["GET"])
+def download_file_task1_2(file_id: int) -> Response:
+    """
+    Download a file from the storage system using Task 1.2.
+    """
+    logger.info(f"Received request to download file {file_id} using Task 1.2")
+
+    return make_response({"message": "Not implemented"}, 501)
+
+
+@app.route("/files/<int:file_id>/task2.1", methods=["GET"])
+def download_file_task2_1(file_id: int) -> Response:
+    """
+    Download a file from the storage system using Task 2.1.
+    """
+    logger.info(f"Received request to download file {file_id} using Task 2.1")
+
+    # Get the file metadata from the database
+    db = get_db()
+    cursor = db.execute(""""
+        SELECT * FROM `file_metadata`
+        WHERE `file_id` = ?
+    """,
+     (file_id)
+    )
+    if not cursor:
+        error_msg: str = "Error connecting to the database"
+        logger.error(error_msg)
+        return make_response({"message": error_msg}, 500)
+        
+    file_metadata = cursor.fetchone()
+    if not file_metadata:
+        error_msg: str = f"File {file_id} not found"
+        logger.error(error_msg)
+        return make_response({"message": error_msg}, 404)
+    
+    # Convert file_metadata from sqlite3.Row object (which is not JSON-encodable) to a standard Python dictionary simply by casting
+    file_metadata = dict(file_metadata)
+    filesize = file_metadata["filesize"]
+
+    l: int = args.max_erasures # Should probably be stored in the database
+
+
+
+    
+
+    filedata_return = reedsolomon.get_file(fragment_names, l, filesize, data_req_socket, response_socket)
+
+
+    return make_response({"message": "Not implemented"}, 501)
+
+
+@app.route("/files/<int:file_id>/task2.2", methods=["GET"])
+def download_file_task2_2(file_id: int) -> Response:
+    """
+    Download a file from the storage system using Task 2.2.
+    """
+    logger.info(f"Received request to download file {file_id} using Task 2.2")
+
+    return make_response({"message": "Not implemented"}, 501)
+
 
 
 @app.route("/files/<int:file_id>", methods=["GET"])
@@ -421,24 +567,9 @@ def extract_fields_from_post_request(request: Request) -> tuple[str, str, bytes,
     """
     Extracts the filename, content type and file data from the request.
     """
-    pp(request)
-
+    
+    # TODO: make it able to handle json
     payload = request.form
-
-    """
-    files = request.files
-    
-    # Make sure there is a file in the request
-    if not files or not files.get('file'):
-        logging.error("No file was uploaded in the request!")
-        return make_response("File missing!", 400)
-    
-    file = files.get('file')
-    filename = file.filename
-    content_type = file.mimetype
-    data = bytearray(file.read())
-    size = len(data)
-    """
 
     #payload: Any | None = request.get_json()
     filename: str = payload.get("filename")
@@ -458,7 +589,7 @@ def time_to_wait(filesize: int) -> int:
     return (filesize * 8) // 10**7
 
 
-@app.route("/files_task1_1", methods=["POST"])
+@app.route("/files_task1.1", methods=["POST"])
 def add_files_task1_1() -> Response:
 
     filename, content_type, file_data, filesize = extract_fields_from_post_request(
@@ -491,18 +622,7 @@ def add_files_task1_1() -> Response:
 
     for _ in range(k):
         resp = response_socket.recv_string()
-        print("Received: %s" % resp)
-
-    """
-    response_socket.setsockopt(zmq.RCVTIMEO, time_to_wait(filesize))
-    for _ in range(k):
-        try:
-            resp = response_socket.recv_string()
-            print("Received: %s" % resp)
-        except zmq.ZMQError as e:
-            logger.error(f"Timeout: {e}")
-            return make_response("Timeout", 408)
-    """
+        logger.info(f"Received: {resp}")    
     
     db = get_db()
     cursor = db.execute(
@@ -512,12 +632,13 @@ def add_files_task1_1() -> Response:
                 `filename`,
                 `size`,
                 `content_type`,
-                `storage_mode`,
+                `uid`,
+                `storage_mode`
             )
         VALUES
-            (?,?,?,?)
+            (?,?,?,?,?)
         """,
-        (filename, filesize, content_type, "replication"),
+        (filename, filesize, content_type, str(file_uuid), "replication"),
     )
 
     db.commit()
@@ -570,7 +691,7 @@ def add_files_task2_1() -> Response:
     data = bytearray(file_data)
 
     fragment_names, fragment_data = reedsolomon.store_file(data, l, send_task_socket, response_socket)
-    # file_uuid = uuid.uuid4()
+    
     logger.info(f"fragment_data: {fragment_data}")
 
     def send_file_to_node(node: StorageNode, fragment_name: str, fragment_data: bytes) -> None:
@@ -793,30 +914,65 @@ scheduler.add_job(
     replace_existing=True,
 )
 
-app.before_first_request(scheduler.start)
-app.before_first_request(
-    lambda: logger.error("TODO: figure out which storage nodes are online.")
-)
-
-# @app.before_first_request
-# def activate_scheduler():
-#     scheduler.start()
-
-
-# @app.teardown_appcontext
-# def shutdown_scheduler(exception=None):
-#     logger.info("Shutting down background job scheduler")
-#     scheduler.shutdown()
-
-
 atexit.register(scheduler.shutdown)
 
-# with Scheduler() as scheduler:
-#     # Add schedules, configure tasks here
-#     scheduler.start_in_background()
-#     task = Task()
-#     trigger = IntervalTrigger(seconds=60)
+# app.before_first_request(scheduler.start)
+# app.before_first_request(
+#     lambda: logger.error("TODO: figure out which storage nodes are online.")
+# )
 
+sock_pull_storage_node_advertisement = context.socket(zmq.REP)
+sock_pull_storage_node_advertisement.bind(f"tcp://*:{constants.PORT_STORAGE_NODE_ADVERTISEMENT}")
+
+for i in range(constants.TOTAL_NUMBER_OF_STORAGE_NODES):
+    logger.debug(f"Waiting for storage node advertisement ... [{i+1}/{constants.TOTAL_NUMBER_OF_STORAGE_NODES}]")
+
+    # Receive the advertisement from the storage node
+    msg = sock_pull_storage_node_advertisement.recv() # TODO: add timeout
+    # Expect msg to be of type StorageNodeAdvertisement
+    advertisement = messages_pb2.StorageNodeAdvertisementRequest()
+    advertisement.ParseFromString(msg)
+    uid = uuid.UUID(advertisement.node.uid.replace("\n", ""))
+    port: int = advertisement.node.port
+    ipv4_addr: str = advertisement.node.ipv4
+
+    # Check if the storage node is already in the database
+    db = sqlite3.connect("files.db", detect_types=sqlite3.PARSE_DECLTYPES)
+    db.row_factory = sqlite3.Row
+
+    print(f"{str(uid)} and len ({len(str(uid))})")
+
+
+    cursor = db.execute("""
+        SELECT * FROM `storage_nodes` WHERE `uid`= ? AND `address`=? AND `port`=?
+    """, [str(uid), ipv4_addr, port]
+    )
+
+    # If the storage node is not in the database, add it
+    if not cursor.fetchone():
+        db.execute("""
+            INSERT INTO `storage_nodes`(`uid`, `address`, `port`) VALUES (?,?,?)
+        """, (str(uid), ipv4_addr, port)
+        )
+        db.commit()
+
+    # Send the response to the storage node
+    resp = messages_pb2.StorageNodeAdvertisementResponse()
+    resp.success = True
+    sock_pull_storage_node_advertisement.send(resp.SerializeToString())
+
+    logger.info(f"Storage node {uid} is online")
+
+
+def drop_storage_nodes_table() -> None:
+    db = sqlite3.connect("files.db", detect_types=sqlite3.PARSE_DECLTYPES)
+    db.row_factory = sqlite3.Row
+
+    db.execute("DROP TABLE IF EXISTS `storage_nodes`")
+    db.commit()
+    logger.info("Dropped table `storage_nodes`")
+
+atexit.register(drop_storage_nodes_table)
 
 # Start the Flask app (must be after the endpoint functions)
 host_local_computer = "localhost"  # Listen for connections on the local computer

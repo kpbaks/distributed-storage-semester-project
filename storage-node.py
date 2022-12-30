@@ -126,13 +126,28 @@ subscriber_sock_task1_2.connect(server_sock_task_1_2_address)
 # sock_sub_heartbeat_request.setsocketopt(zmq.SUBSCRIBE, constants.TOPIC_HEARTBEAT.encode("utf-8"))
 
 
+sock_rep_get_data = context.socket(zmq.REP)
 
-# Use a Poller to monitor three sockets at the same time
+sock_rep_get_data.bind_to_random_port("tcp://*", min_port=5000, max_port=5999)
+
+# Get random port that is not in use
+# zmq.socket.bind_to_random_port(sock_rep_get_data, "tcp://*", min_port=5000, max_port=5999)
+PORT_GET_DATA: int = int(sock_rep_get_data.getsockopt(zmq.LAST_ENDPOINT).decode("utf-8").split(":")[-1])
+logger.info(f"Created zmq.REP socket and bound to {PORT_GET_DATA}")
+
+# sock_rep_get_data = context.socket(zmq.SUB)
+# sock_sub_get_data.setsockopt(zmq.SUBSCRIBE, NODE_UID.encode("UTF-8"))
+# sock_sub_get_data.connect(f"tcp://*:{constants.PORT_GET_DATA}")
+# logger.info(f"Created zmq.REP socket and bound to {constants.PORT_GET_DATA}")
+
+
+# Use a Poller to monitor multiple sockets at the same time
 poller = zmq.Poller()
 for sock in [
     receiver,
     subscriber,
     repair_subscriber,
+    sock_rep_get_data
     # sock_router_heartbeat_request
 ]:
     poller.register(sock, zmq.POLLIN)
@@ -227,14 +242,45 @@ def nuke_storage_folder() -> None:
 
 # atexit.register(nuke_storage_folder)
 
-def setup(master_node_addr: str) -> None:
+def setup(master_node_addr: str, attempts: int = 10) -> None:
     """
     Send a broadcast message to the master node, and the other storage nodes
     containing this storage nodes UID, aswell as its IPv4 address.
     """
     # TODO: implement
-    
-    pass
+
+    sock = context.socket(zmq.REQ)
+    sock.connect(f"tcp://{master_node_addr}:{constants.PORT_STORAGE_NODE_ADVERTISEMENT}")
+    for i in range(attempts):
+        # Create a new socket
+
+        # Create a new message
+        msg = messages_pb2.StorageNodeAdvertisementRequest()
+        msg.node.uid = NODE_UID.encode("utf-8")
+        ipv4_addr: str = get_interface_ipaddress('eth0')  if is_raspberry_pi() else 'localhost'
+        logger.debug(f"Using IPv4 address: {ipv4_addr}")
+        msg.node.ipv4 = ipv4_addr
+        # Get a random port for the storage node to listen on, that is not in use
+        msg.node.port = PORT_GET_DATA
+        
+        # Send the message
+        sock.send(msg.SerializeToString())
+
+        # Wait for the master node to acknowledge the message
+        response = sock.recv_multipart()
+        storage_node_advertisement_response = messages_pb2.StorageNodeAdvertisementResponse()
+        storage_node_advertisement_response.ParseFromString(response[0])
+        if storage_node_advertisement_response.success:
+            logger.info(f"Successfully registered with master node: {storage_node_advertisement_response}")
+            sock.close()
+            return
+        else:
+            logger.warning(f"Failed to register with master node: {storage_node_advertisement_response}")
+            time.sleep(1)
+            
+    sock.close()
+    raise Exception("Failed to register with master node")
+
 
 
 def main_loop() -> None:
@@ -258,6 +304,40 @@ def main_loop() -> None:
         if subscriber in socks:
             logger.info("Received message on subscriber socket")
             subscriber_action(subscriber, sender)
+
+        if sock_rep_get_data in socks:
+            logger.info("Received message on sock_rep_get_data socket")
+            received = sock_rep_get_data.recv_multipart()
+            get_data_request = messages_pb2.GetDataRequest()
+            get_data_request.ParseFromString(received[0])
+            if get_data_request.status == messages_pb2.GetDataRequest.Status.OK:
+                logger.info(f"Received request for file {get_data_request.file_uuid}")
+                # check if the file exists
+                f: Path = DATA_FOLDER / get_data_request.file_uuid
+                if not f.exists():
+                    logger.error(f"File {get_data_request.file_uuid} not found")
+                    get_data_response = messages_pb2.GetDataResponse()
+                    get_data_response.status = False
+                    get_data_response_serialized = get_data_response.SerializeToString()
+                    sock_rep_get_data.send_multipart([get_data_response_serialized])
+                    continue
+                    
+                # Read the file and send it back
+                with open(f"{DATA_FOLDER}/{get_data_request.file_uuid}", "rb") as f:
+                    logger.info(f"Sending file {get_data_request.file_uuid} back")
+                    get_data_response = messages_pb2.GetDataResponse()
+                    get_data_response.status = True
+                    get_data_response.file_data = f.read()
+                    get_data_response_serialized = get_data_response.SerializeToString()
+                    sock_rep_get_data.send_multipart([get_data_response_serialized])
+
+            else:
+                logger.error(f"Received error request for file {get_data_request.file_uuid}")
+                get_data_response = messages_pb2.GetDataResponse()
+                get_data_response.status = False
+                get_data_response_serialized = get_data_response.SerializeToString()
+                sock_rep_get_data.send_multipart([get_data_response_serialized])
+                
 
         # if sock_router_heartbeat_request in socks:
         #     message = sock_router_heartbeat_request.recv_multipart()
@@ -418,6 +498,6 @@ def main_loop() -> None:
 
 
 if __name__ == '__main__':
-    # setup(args.master_node_addr)
+    setup("127.0.0.1")
     logger.info("Starting main loop")
     main_loop()

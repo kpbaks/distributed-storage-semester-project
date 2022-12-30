@@ -140,3 +140,18 @@ def get_interface_ipaddress(network: str) -> str:
     addr = subprocess.check_output(["ip", "addr", "show", network]).decode("utf-8")
     addr = addr.split("inet ")[1].split("/")[0]
     return addr
+
+
+def get_random_port_not_in_use() -> int:
+    """
+    Returns a random port number that is not in use.
+    """
+    # create a new socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # bind to port 0, which will get a random port number
+    s.bind(("", 0))
+    # get the port number
+    port = s.getsockname()[1]
+    # close the socket
+    s.close()
+    return port

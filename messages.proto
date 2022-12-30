@@ -17,14 +17,31 @@ message fragment_status_request
 
 message StorageNode
 {
-	string ip = 1;
+	string ipv4 = 1;
 	int32 port = 2;
+	string uid = 3;
+}
+
+message StorageNodeAdvertisementRequest
+{
+	StorageNode node = 1;
+}
+
+message StorageNodeAdvertisementResponse
+{
+	bool success = 1;
 }
 
 // Task 1.1 ---------------------------------------------------------------------------------------
 message GetDataRequest
 {
 	string file_uuid = 1; // The UUID of the file to be retrieved
+}
+
+message GetDataResponse
+{
+	bool success = 1; // true if the file was successfully retrieved
+	bytes file_data = 2; // The file data
 }
 
 message StoreDataRequest

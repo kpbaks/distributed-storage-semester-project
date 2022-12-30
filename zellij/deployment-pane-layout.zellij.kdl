@@ -4,7 +4,7 @@ layout {
 	pane split_direction="vertical" {
 		pane {
 			command "poetry"
-			args "run" "python" "rest-server.py" "-k" "4" "-l" "1" "-m" "task2.1"
+			args "run" "python" "rest-server.py" "-k" "4" "-l" "1" "-m" "task1.1"
 			close_on_exit false
 			start_suspended false
 			name "rest-server"
