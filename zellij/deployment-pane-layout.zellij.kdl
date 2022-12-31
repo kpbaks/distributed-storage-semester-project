@@ -8,26 +8,27 @@ layout {
 			close_on_exit false
 			start_suspended false
 			name "rest-server"
-			size "60%"
+			size "50%"
 		}
 		pane {
 			name "client"
+			focus true
 			// close_on_exit true
 		}
 	}
 	
-	pane split_direction="vertical" {
-		pane split_direction="horizontal" {
+	pane split_direction="horizontal" {
+		pane split_direction="vertical" {
 			pane {
 			command "poetry"
-			args "run" "python" "storage-node.py" "storage0"
-			name "storage0"
+			args "run" "python" "storage-node.py" "storage1"
+			name "storage1"
 			// close_on_exit true
 		}
 		pane {
 			command "poetry"
-			args "run" "python" "storage-node.py" "storage1"
-			name "storage1"
+			args "run" "python" "storage-node.py" "storage2"
+			name "storage2"
 			// close_on_exit true
 		}
 		}
@@ -35,14 +36,14 @@ layout {
 		pane split_direction="vertical" {
 		pane {
 			command "poetry"
-			args "run" "python" "storage-node.py" "storage2"
-			name "storage2"
+			args "run" "python" "storage-node.py" "storage3"
+			name "storage3"
 			// close_on_exit true
 		}
 		pane {
 			command "poetry"
-			args "run" "python" "storage-node.py" "storage3"
-			name "storage3"
+			args "run" "python" "storage-node.py" "storage4"
+			name "storage4"
 			// close_on_exit true
 		}
 	}

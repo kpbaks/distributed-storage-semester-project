@@ -18,13 +18,15 @@ syntax = "proto3";
 message StorageNode
 {
 	string ipv4 = 1;
-	int32 port = 2;
-	string uid = 3;
+	int32 port_get_data = 2;
+	int32 port_store_data = 3;
+	string uid = 4;
 }
 
 message StorageNodeAdvertisementRequest
 {
 	StorageNode node = 1;
+	string friendly_name = 2;
 }
 
 message StorageNodeAdvertisementResponse

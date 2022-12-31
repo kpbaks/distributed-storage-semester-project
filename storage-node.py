@@ -140,19 +140,17 @@ subscriber_sock_task1_2.connect(server_sock_task_1_2_address)
 # sock_sub_heartbeat_request.setsocketopt(zmq.SUBSCRIBE, constants.TOPIC_HEARTBEAT.encode("utf-8"))
 
 
-sock_rep_get_data = context.socket(zmq.REP)
-
-sock_rep_get_data.bind_to_random_port("tcp://*", min_port=5000, max_port=5999)
-
+sock_rep_store_data = context.socket(zmq.REP)
 # Get random port that is not in use
-# zmq.socket.bind_to_random_port(sock_rep_get_data, "tcp://*", min_port=5000, max_port=5999)
-PORT_GET_DATA: int = int(sock_rep_get_data.getsockopt(zmq.LAST_ENDPOINT).decode("utf-8").split(":")[-1])
-logger.info(f"Created zmq.REP socket and bound to {PORT_GET_DATA}")
+sock_rep_store_data.bind_to_random_port("tcp://*", min_port=5000, max_port=6999)
+PORT_STORE_DATA: int = int(sock_rep_store_data.getsockopt(zmq.LAST_ENDPOINT).decode("utf-8").split(":")[-1])
+logger.info(f"Created zmq.REP socket to handle `store data` and bound to {PORT_STORE_DATA}")
 
-# sock_rep_get_data = context.socket(zmq.SUB)
-# sock_sub_get_data.setsockopt(zmq.SUBSCRIBE, NODE_UID.encode("UTF-8"))
-# sock_sub_get_data.connect(f"tcp://*:{constants.PORT_GET_DATA}")
-# logger.info(f"Created zmq.REP socket and bound to {constants.PORT_GET_DATA}")
+sock_rep_get_data = context.socket(zmq.REP)
+# Get random port that is not in use
+sock_rep_get_data.bind_to_random_port("tcp://*", min_port=5000, max_port=5999)
+PORT_GET_DATA: int = int(sock_rep_get_data.getsockopt(zmq.LAST_ENDPOINT).decode("utf-8").split(":")[-1])
+logger.info(f"Created zmq.REP socket to handle `get data` and bound to {PORT_GET_DATA}")
 
 
 # Use a Poller to monitor multiple sockets at the same time
@@ -161,7 +159,8 @@ for sock in [
     receiver,
     subscriber,
     repair_subscriber,
-    sock_rep_get_data
+    sock_rep_get_data,
+    sock_rep_store_data
     # sock_router_heartbeat_request
 ]:
     poller.register(sock, zmq.POLLIN)
@@ -254,12 +253,11 @@ def nuke_storage_folder() -> None:
 
 # atexit.register(nuke_storage_folder)
 
-def setup(master_node_addr: str, attempts: int = 10) -> None:
+def setup(master_node_addr: str, attempts: int = 10, timeout_between_attempts: int = 1) -> None:
     """
     Send a broadcast message to the master node, and the other storage nodes
     containing this storage nodes UID, aswell as its IPv4 address.
     """
-    # TODO: implement
 
     sock = context.socket(zmq.REQ)
     sock.connect(f"tcp://{master_node_addr}:{constants.PORT_STORAGE_NODE_ADVERTISEMENT}")
@@ -271,8 +269,12 @@ def setup(master_node_addr: str, attempts: int = 10) -> None:
         logger.debug(f"Using IPv4 address: {ipv4_addr}")
         msg.node.ipv4 = ipv4_addr
         # Get a random port for the storage node to listen on, that is not in use
-        msg.node.port = PORT_GET_DATA
-        
+        # msg.node.port = PORT_GET_DATA
+        msg.node.port_get_data = PORT_GET_DATA
+        msg.node.port_store_data = PORT_STORE_DATA
+
+        msg.friendly_name = DATA_FOLDER.name
+    
         # Send the message
         sock.send(msg.SerializeToString())
 
@@ -286,7 +288,7 @@ def setup(master_node_addr: str, attempts: int = 10) -> None:
             return
         else:
             logger.warning(f"Failed to register with master node: {storage_node_advertisement_response}")
-            time.sleep(1)
+            time.sleep(timeout_between_attempts)
             
     sock.close()
     raise Exception("Failed to register with master node")
@@ -330,6 +332,47 @@ def get_data_action(sock_rep_get_data: zmq.Socket) -> None:
                         )
                     )
                     sock_rep_get_data.send_multipart([response.SerializeToString()])
+
+        case _:
+            logger.error(f"Received unknown message type: {request.type}")
+
+
+def store_data_action() -> None:
+    assert sock_rep_store_data is not None and sock_rep_store_data.type == zmq.REP, f"sock_rep_store_data is not a REP socket, but a {sock_rep_store_data.type}"
+    logger.info("Received message on sock_rep_store_data socket")
+    received = sock_rep_store_data.recv_multipart()
+    try:
+        request = messages_pb2.Message.FromString(received[0])
+    except messages_pb2.DecodeError as e:
+        logger.error(f"Failed to parse Message: {e}")
+        return
+    
+    match request.type:
+        case messages_pb2.MsgType.STORE_DATA_REQUEST:
+            assert request.WhichOneof("payload") == "store_data_request", f"Message type is STORE_DATA_REQUEST, but payload is not a StoreDataRequest, but a {request.WhichOneof('payload')}"
+            store_data_request = request.store_data_request
+            logger.info(f"Received request to store file {store_data_request.file_uid}")
+
+            f = DATA_FOLDER / store_data_request.file_uid
+            success: bool = False
+            if f.exists():
+                logger.error(f"File {store_data_request.file_uid} already exists")
+                success = False
+
+            else:
+                # Write the file
+                with open(f"{DATA_FOLDER}/{store_data_request.file_uid}", "wb") as f:
+                    f.write(store_data_request.file_data)
+                    logger.info(f"Stored file {store_data_request.file_uid}")
+                    success = True
+
+            response = messages_pb2.Message(
+                    type=messages_pb2.MsgType.STORE_DATA_RESPONSE,
+                    store_data_response=messages_pb2.StoreDataResponse(
+                        success=success
+                    )
+                )
+            sock_rep_store_data.send_multipart([response.SerializeToString()])  
 
         case _:
             logger.error(f"Received unknown message type: {request.type}")
@@ -391,6 +434,10 @@ def main_loop() -> None:
 
         if sock_rep_get_data in socks:
             get_data_action(sock_rep_get_data)
+
+        if sock_rep_store_data in socks:
+            store_data_action()
+
 
           
 

@@ -13,8 +13,10 @@ CREATE TABLE `file_metadata` (
 CREATE TABLE `storage_nodes` (
 	`storage_node_id` INTEGER PRIMARY KEY AUTOINCREMENT,
 	`uid` TEXT,
+   `friendly_name` TEXT,
 	`address` TEXT,
-	`port` INTEGER
+	`port_get_data` INTEGER,
+   `port_store_data` INTEGER
 );
 
 CREATE TABLE `replicas` (

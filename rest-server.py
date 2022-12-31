@@ -230,8 +230,8 @@ def download_file_task1_1(file_id: int) -> Response:
     # Create a client socket to send the request to the Storage Nodes
     for storage_node in storage_nodes:
         sock = context.socket(zmq.REQ)
-        endpoint = f"tcp://{storage_node['address']}:{storage_node['port']}"
-        logger.info(f"Connecting to Storage Node {endpoint}")
+        endpoint = f"tcp://{storage_node['address']}:{storage_node['port_get_data']}"
+        logger.info(f"Connecting to Storage Node {storage_node['friendly_name']} at {endpoint}")
         sock.connect(endpoint)
         request = messages_pb2.Message(
             type=messages_pb2.MsgType.GET_DATA_REQUEST,
@@ -617,25 +617,40 @@ def add_files_task1_1() -> Response:
 
     file_uid = uuid.uuid4()
 
-    def send_file_to_node(node: StorageNode):
-        request = messages_pb2.StoreDataRequest()
-
-        request.file_uid = str(file_uid)
-        request.file_data = file_data
-
-        serialized_request = request.SerializeToString()
-
-        send_task_socket.send_multipart(
-            [str(node.uid).encode("UTF-8"), serialized_request]
+    def send_file_to_node(node: StorageNode) -> zmq.Socket:
+        msg = messages_pb2.Message(
+            type=messages_pb2.MsgType.STORE_DATA_REQUEST,
+            store_data_request=messages_pb2.StoreDataRequest(
+                file_uid=str(file_uid),
+                file_data=file_data
+            )
         )
+        msg_serialized = msg.SerializeToString()
 
+        # request = messages_pb2.StoreDataRequest()
+        # request.file_uid = str(file_uid)
+        # request.file_data = file_data
+
+        # serialized_request = request.SerializeToString()
+
+        sock = context.socket(zmq.REQ)
+        sock.connect(f"tcp://{node.address}:{node.port_store_data}")
+        sock.send_multipart([msg_serialized])
+
+        return sock
+
+    
     # Send file to chosen_storage_nodes
     for node in chosen_storage_nodes:
-        send_file_to_node(node)
+        client: zmq.Socket = send_file_to_node(node)
+        logger.debug(f"Sent file to {node.address}:{node.port_store_data}")
+        resp = client.recv_multipart() # await response
+        resp_serialized = messages_pb2.Message.FromString(resp[0])
+        logger.debug(f"Received response: {resp_serialized}")
 
-    for _ in range(k):
-        resp = response_socket.recv_string()
-        logger.info(f"Received: {resp}")    
+    # for _ in range(k):
+    #     resp = response_socket.recv_string()
+    #     logger.info(f"Received: {resp}")    
     
     db = get_db()
     cursor = db.execute(
@@ -657,8 +672,11 @@ def add_files_task1_1() -> Response:
     db.commit()
 
     file_id: int = cursor.lastrowid
-
+    
     for node in chosen_storage_nodes:
+        pp(node)
+        logger.debug(f"File ID: {file_id}, Node ID: {node.uid}")
+
         db.execute(
             f"""
         INSERT INTO
@@ -674,7 +692,9 @@ def add_files_task1_1() -> Response:
             (file_id, node.uid),
         )
 
-    db.commit()
+        db.commit()
+
+    # db.commit()
 
     return make_response({"id": file_id}, 201)
 
@@ -1049,8 +1069,11 @@ for i in range(constants.TOTAL_NUMBER_OF_STORAGE_NODES):
     advertisement = messages_pb2.StorageNodeAdvertisementRequest()
     advertisement.ParseFromString(msg)
     uid = uuid.UUID(advertisement.node.uid.replace("\n", ""))
-    port: int = advertisement.node.port
+    port_get_data: int = advertisement.node.port_get_data
+    port_store_data: int = advertisement.node.port_store_data
+
     ipv4_addr: str = advertisement.node.ipv4
+    friendly_name: str = advertisement.friendly_name
 
     # Check if the storage node is already in the database
     db = sqlite3.connect("files.db", detect_types=sqlite3.PARSE_DECLTYPES)
@@ -1060,15 +1083,15 @@ for i in range(constants.TOTAL_NUMBER_OF_STORAGE_NODES):
 
 
     cursor = db.execute("""
-        SELECT * FROM `storage_nodes` WHERE `uid`= ? AND `address`=? AND `port`=?
-    """, [str(uid), ipv4_addr, port]
+        SELECT * FROM `storage_nodes` WHERE `uid`= ? AND `address`=? AND `port_get_data`=?
+    """, [str(uid), ipv4_addr, port_get_data]
     )
 
     # If the storage node is not in the database, add it
     if not cursor.fetchone():
         db.execute("""
-            INSERT INTO `storage_nodes`(`uid`, `address`, `port`) VALUES (?,?,?)
-        """, (str(uid), ipv4_addr, port)
+        INSERT INTO `storage_nodes`(`uid`, `friendly_name`, `address`, `port_get_data`, `port_store_data`) VALUES (?,?,?,?,?)
+        """, (str(uid), friendly_name, ipv4_addr, port_get_data, port_store_data)
         )
         db.commit()
 
@@ -1077,7 +1100,7 @@ for i in range(constants.TOTAL_NUMBER_OF_STORAGE_NODES):
     resp.success = True
     sock_pull_storage_node_advertisement.send(resp.SerializeToString())
 
-    logger.info(f"Storage node {uid} is online")
+    logger.info(f"Storage node {friendly_name} is online")
 
 
 def drop_storage_nodes_table() -> None:
