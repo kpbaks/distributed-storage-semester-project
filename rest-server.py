@@ -41,24 +41,39 @@ from utils import (create_logger, flatten_list,
                    get_log_level_name_from_effective_level, is_raspberry_pi)
 
 
-def get_db(filename: str = "files.db") -> sqlite3.Connection:
-    """Get a database connection. Create it if it doesn't exist."""
-    if (
-        "db" not in g
-    ):  # g is a special object that is unique for each request, and can be used to store data.
-        g.db = sqlite3.connect(filename, detect_types=sqlite3.PARSE_DECLTYPES)
-        g.db.row_factory = sqlite3.Row
 
-    return g.db
+NAME_OF_THIS_SCRIPT: str = os.path.basename(__file__).split(".")[0]
 
+parser = argparse.ArgumentParser(prog=NAME_OF_THIS_SCRIPT)
 
-name_of_this_script: str = os.path.basename(__file__)
-# remove .py extension if it exists
-if name_of_this_script.endswith(".py"):
-    name_of_this_script = name_of_this_script[:-3]
+parser.add_argument(
+    "-k",
+    "--replication-factor",
+    choices=[2, 3, 4],
+    type=int,
+    help="Number of fragments to store",
+)
+parser.add_argument(
+    "-l",
+    "--max-erasures",
+    type=int,
+    choices=[1, 2],
+    help="Number of fragments to recover",
+)
+parser.add_argument(
+    "-m",
+    "--mode",
+    type=str,
+    required=True,
+    choices=constants.STORAGE_MODES,
+    help=f"Mode of operation: {constants.STORAGE_MODES}",
+)
 
+args = parser.parse_args()
 
-logger = create_logger(name_of_this_script)
+logger = create_logger(NAME_OF_THIS_SCRIPT)
+
+# ------------------ ZMQ --------------------------------
 
 logger.info("Initializing ZMQ sockets ...")
 # Initiate ZMQ sockets
@@ -100,41 +115,23 @@ time.sleep(1)
 logger.info("Listening to ZMQ messages on tcp://*:5558 and tcp://*:5561")
 
 
-parser = argparse.ArgumentParser(prog=name_of_this_script)
-
-
-parser.add_argument(
-    "-k",
-    "--replication-factor",
-    choices=[2, 3, 4],
-    type=int,
-    help="Number of fragments to store",
-)
-parser.add_argument(
-    "-l",
-    "--max-erasures",
-    type=int,
-    choices=[1, 2],
-    help="Number of fragments to recover",
-)
-parser.add_argument(
-    "-m",
-    "--mode",
-    type=str,
-    required=True,
-    choices=constants.STORAGE_MODES,
-    help=f"Mode of operation: {constants.STORAGE_MODES}",
-)
-
-
-args = parser.parse_args()
-
-
+# ------------------ Flask --------------------------------
 logger.debug("Instantiating Flask app")
 # Instantiate the Flask app (must be before the endpoint functions)
 app = Flask(__name__)
 # Close the DB connection after serving the request
 # app.teardown_appcontext(close_db)
+
+
+def get_db(filename: str = constants.SQLITE_DB_PATH) -> sqlite3.Connection:
+    """Get a database connection. Create it if it doesn't exist."""
+    if (
+        "db" not in g
+    ):  # g is a special object that is unique for each request, and can be used to store data.
+        g.db = sqlite3.connect(filename, detect_types=sqlite3.PARSE_DECLTYPES)
+        g.db.row_factory = sqlite3.Row
+
+    return g.db
 
 
 @app.teardown_appcontext
@@ -151,9 +148,11 @@ def list_files() -> Response:
     Get metadata for all files in storage system.
     """
     db = get_db()
-    cursor = db.execute("SELECT * FROM `file`")
+    cursor = db.execute("SELECT * FROM `file_metadata`")
     if not cursor:
-        return make_response({"message": "Error connecting to the database"}, 500)
+        err_msg: str = "Error connecting to the database"
+        logger.error(err_msg)
+        return make_response({"message": err_msg}, 500)
 
     files = cursor.fetchall()
     # Convert files from sqlite3.Row object (which is not JSON-encodable) to
@@ -209,9 +208,11 @@ def download_file_task1_1(file_id: int) -> Response:
         FROM `storage_nodes` AS sn
         JOIN `replicas` AS r
             ON r.file_metadata_id = ?
+        WHERE sn.storage_node_id = r.storage_node_id
         """,
         [file_id]
     )
+
 
     if not cursor:
         return make_response({"message": "Error connecting to the database"}, 500)
@@ -221,45 +222,49 @@ def download_file_task1_1(file_id: int) -> Response:
     # a standard Python dictionary simply by casting
     storage_nodes = [dict(sn) for sn in storage_nodes]
 
+    pp(storage_nodes)
+
+    # Permute the storage nodes so that the order is random
+    random.shuffle(storage_nodes)
+
     # Create a client socket to send the request to the Storage Nodes
     for storage_node in storage_nodes:
         sock = context.socket(zmq.REQ)
         endpoint = f"tcp://{storage_node['address']}:{storage_node['port']}"
         logger.info(f"Connecting to Storage Node {endpoint}")
         sock.connect(endpoint)
-        request = messages_pb2.GetDataRequest()
-        request.file_uuid = file_metadata["uid"]
+        request = messages_pb2.Message(
+            type=messages_pb2.MsgType.GET_DATA_REQUEST,
+            get_data_request=messages_pb2.GetDataRequest(
+                file_uid=file_metadata["uid"]
+            )
+        )
+        # request = messages_pb2.GetDataRequest()
+        # request.file_uid = file_metadata["uid"]
         request_serialized = request.SerializeToString()
         sock.send_multipart([request_serialized])
 
         # Set timeout for receiving the response from the Storage Node
         # sock.RCVTIMEO = time_to_wait(file_metadata["size"])
         response: List[bytes] = sock.recv_multipart()
-        response_deserialized = messages_pb2.GetDataResponse()
-        response_deserialized.ParseFromString(response[0])
-        if response_deserialized.status == messages_pb2.GetDataResponse.SUCCESS:
-            logger.info(f"Received fragment {response_deserialized.fragment_id} from Storage Node {storage_node['storage_node_id']}")
-            file_data: bytes = response_deserialized.data
+        msg = messages_pb2.Message.FromString(response[0])
+        if msg.type != messages_pb2.MsgType.GET_DATA_RESPONSE:
+            logger.error(f"Received invalid response from Storage Node {storage_node['uid']}")
+            continue
+        
+        
+        if msg.get_data_response.success:
+            file_data: bytes = msg.get_data_response.file_data
             content_type: str = file_metadata["content_type"]
             return send_file(io.BytesIO(file_data), mimetype=content_type)
 
         else:
-            logger.error(f"Error receiving fragment {response_deserialized.fragment_id} from Storage Node {storage_node['storage_node_id']}")
+            logger.error(f"Error receiving replica {file_metadata['uid']} from Storage Node {storage_node['uid']}")
         
         sock.close()
 
     return make_response({"message": "Error downloading file"}, 500)
 
-    
-
-@app.route("/files/<int:file_id>/task1.2", methods=["GET"])
-def download_file_task1_2(file_id: int) -> Response:
-    """
-    Download a file from the storage system using Task 1.2.
-    """
-    logger.info(f"Received request to download file {file_id} using Task 1.2")
-
-    return make_response({"message": "Not implemented"}, 501)
 
 
 @app.route("/files/<int:file_id>/task2.1", methods=["GET"])
@@ -325,7 +330,8 @@ def download_file(file_id: int) -> Response:
         case "task1.1":
             return redirect(f"/files/{file_id}/task1.1", code=307)
         case "task1.2":
-            return redirect(f"/files/{file_id}/task1.2", code=307)
+            # The logic for Task 1.2 is the same as Task 1.1
+            return redirect(f"/files/{file_id}/task1.1", code=307)
         case "task2.1":
             return redirect(f"/files/{file_id}/task2.1", code=307)
         case "task2.2":
@@ -571,10 +577,17 @@ def extract_fields_from_post_request(request: Request) -> tuple[str, str, bytes,
     # TODO: make it able to handle json
     payload = request.form
 
+    # Check if request is a form or a json
+    if not payload:
+        payload = request.get_json()
+        if not payload:
+            logging.error("No file was uploaded in the request!")
+            raise Exception("No file was uploaded in the request!")
+
     #payload: Any | None = request.get_json()
     filename: str = payload.get("filename")
     content_type: str = payload.get("content_type")
-    file_data: bytes = base64.b64decode(payload.get("contents"))
+    file_data: bytes = base64.b64decode(payload.get("contents_b64"))
     size = len(file_data)  # The amount of bytes in the file
 
     return filename, content_type, file_data, size
@@ -602,12 +615,12 @@ def add_files_task1_1() -> Response:
     # Create list of replica # of IP addresses
     chosen_storage_nodes = random.sample(storage_nodes, k)
 
-    file_uuid = uuid.uuid4()
+    file_uid = uuid.uuid4()
 
     def send_file_to_node(node: StorageNode):
         request = messages_pb2.StoreDataRequest()
 
-        request.file_uuid = str(file_uuid)
+        request.file_uid = str(file_uid)
         request.file_data = file_data
 
         serialized_request = request.SerializeToString()
@@ -638,14 +651,14 @@ def add_files_task1_1() -> Response:
         VALUES
             (?,?,?,?,?)
         """,
-        (filename, filesize, content_type, str(file_uuid), "replication"),
+        (filename, filesize, content_type, str(file_uid), "replication"),
     )
 
     db.commit()
 
     file_id: int = cursor.lastrowid
 
-    for node in storage_nodes:
+    for node in chosen_storage_nodes:
         db.execute(
             f"""
         INSERT INTO
@@ -675,7 +688,110 @@ def add_files_task1_2() -> Response:
         request
     )
 
-    return make_response({"id": cursor.lastrowid}, 201)
+    k: int = args.replication_factor
+
+    storage_nodes: List[StorageNode] = get_storage_nodes_from_db()
+    assert len(storage_nodes) >= k, "Not enough storage nodes to store the file!"
+    random.shuffle(storage_nodes)
+
+    first_k_nodes = storage_nodes[:k]
+    first_node = first_k_nodes[0]
+    rest_nodes = first_k_nodes[1:]
+
+    file_uid = uuid.uuid4()
+
+    msg = messages_pb2.Message(
+        type=messages_pb2.MsgType.DELEGATE_STORE_DATA_REQUEST,
+        payload=messages_pb2.DelegateStoreDataRequest(
+            file_uid=str(file_uid).encode("UTF-8"),
+            file_data=file_data,
+            nodes_to_forward_to=[
+                messages_pb2.StorageNode(
+                    uid=node.uid.encode("UTF-8"),
+                    ipv4=node.ipv4.encode("UTF-8"),
+                    port=node.port,
+                ) for node in rest_nodes
+            ],
+        )
+    )
+
+    msg_serialized = msg.SerializeToString()
+
+    # delegate_store_data_request = messages_pb2.DelegateStoreDataRequest()
+    # delegate_store_data_request.file_uid = str(file_uid).encode("UTF-8")
+    # delegate_store_data_request.file_data = file_data
+
+    # delegate_store_data_request.nodes_to_forward_to = [
+    #     messages_pb2.StorageNode(
+    #         uid=node.uid.encode("UTF-8"),
+    #         ipv4 = node.ipv4.encode("UTF-8"),
+    #         port=node.port,
+    #     ) for node in rest_nodes
+    # ]
+
+    # serialized_request = delegate_store_data_request.SerializeToString()
+
+    # Create a REQ socket to send the request to the first node
+    sock = context.socket(zmq.REQ)
+    sock.connect(f"tcp://{first_node.ipv4}:{first_node.port}")
+    sock.send_multipart([msg_serialized])
+
+    # Wait for the response
+    received = sock.recv_multipart()
+    try:
+        response = messages_pb2.Message.FromString(received[0])
+        # response = messages_pb2.DelegateStoreDataResponse.FromString(received[0])
+    except messages_pb2.DecodeError as e:
+        logger.error(f"Error decoding response: {e}")
+        return make_response({"error": "Error decoding response"}, 500)
+    else:
+        if response.type != messages_pb2.MsgType.DELEGATE_STORE_DATA_RESPONSE:
+            logger.error(f"Unexpected response type: {response.type}")
+            return make_response({"error": "Unexpected response type"}, 500)
+        
+        logger.info(f"Received response: {response}")
+        db = get_db()
+        cursor = db.execute("""
+        INSERT INTO
+            `file_metadata`(
+                `filename`,
+                `size`,
+                `content_type`,
+                `uid`,
+                `storage_mode`
+            )
+        VALUES
+            (?,?,?,?,?)
+        """,
+            [filename, filesize, content_type, str(file_uid), "replication_with_delegation"]
+        )
+
+        db.commit()
+
+        file_id: int = cursor.lastrowid
+
+        for node in storage_nodes:
+            db.execute(
+                f"""
+            INSERT INTO
+                `replicas` (
+                    `file_metadata_id`,
+                    'storage_node_id'
+                )
+            VALUES (
+                (SELECT file_metadata_id FROM file_metadata WHERE file_metadata_id = ?),
+                (SELECT storage_node_id FROM storage_nodes WHERE uid = ?)
+            )
+            """,
+                (file_id, node.uid),
+            )
+
+        db.commit()
+        logger.info(f"Inserted file with id {file_id} into database")
+        return make_response({"id": cursor.lastrowid}, 201)
+    finally:
+        sock.close()
+
 
 
 @app.route("/files_task2.1", methods=["POST"])

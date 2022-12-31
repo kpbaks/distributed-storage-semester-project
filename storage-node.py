@@ -19,20 +19,30 @@ import messages_pb2
 from utils import is_raspberry_pi, random_string, write_file, create_logger, get_interface_ipaddress
 import constants
 
-logger = create_logger()
+name_of_this_script = os.path.basename(__file__).split(".")[0]
+
+logger = create_logger(name_of_this_script)
 logger.info(f"log level is {logger.getEffectiveLevel()}")
 
-parser = argparse.ArgumentParser(description="Storage node")
+parser = argparse.ArgumentParser(
+    prog=name_of_this_script,
+    description="Storage node"
+)
+
 parser.add_argument(
     "data_folder", type=str, help="Folder where chunks should be stored"
 )
 
 args = parser.parse_args()
 
+
+
 # check if folder exists, else create it
 if not os.path.exists(args.data_folder):
     logger.info(f"Folder {args.data_folder} does not exist, creating it")
     os.makedirs(args.data_folder)
+else:
+    assert os.path.isdir(args.data_folder), f"{args.data_folder} is not a folder"
 
 
 DATA_FOLDER = pathlib.Path(args.data_folder)
@@ -45,6 +55,10 @@ try:
     filename = DATA_FOLDER / ".node_id"
     with open(filename, "r") as id_file:
         NODE_UID = id_file.read()
+        # Remove trailing newline
+        NODE_UID = NODE_UID.strip()
+        # Convert to UUID
+        NODE_UID = uuid.UUID(NODE_UID)
         logger.info(f"ID read from file: {NODE_UID}")
 except FileNotFoundError:
     # This is OK, this must be the first time the node was started
@@ -109,7 +123,7 @@ logger.info(f"Created zmq.SUB socket and connected to {repair_subscriber_address
 
 repair_subscriber.setsockopt(zmq.SUBSCRIBE, b"all_nodes")
 # Receive messages destined for this node
-repair_subscriber.setsockopt(zmq.SUBSCRIBE, NODE_UID.encode("UTF-8"))
+repair_subscriber.setsockopt(zmq.SUBSCRIBE, NODE_UID.bytes)
 
 
 # Socket to send repair results to the controller
@@ -178,15 +192,13 @@ def receiver_action(subscriber: zmq.Socket, sender: zmq.Socket) -> None:
     logger.debug(f"task: {task}")
     
     task.ParseFromString(msg[1])
-    file_uuid = task.file_uuid
-    file_data = task.file_data
-
-    with open(f"{DATA_FOLDER}/{file_uuid}", "wb") as f:
-        f.write(file_data)
-        logger.info(f"File {file_uuid} saved to {DATA_FOLDER}")
+    
+    with open(f"{DATA_FOLDER}/{task.file_uid}", "wb") as f:
+        f.write(task.file_data)
+        logger.info(f"File {task.file_uid} saved to {DATA_FOLDER}")
 
     # Send response (just the file name)
-    sender.send_string(task.file_uuid)
+    sender.send_string(task.file_uid)
 
 
 # This function is called when a message is received on the subscriber socket
@@ -200,7 +212,7 @@ def subscriber_action(subscriber: zmq.Socket, sender: zmq.Socket) -> None:
     task = messages_pb2.GetDataRequest()
     task.ParseFromString(msg)
 
-    file_uid = task.file_uuid
+    file_uid = task.file_uid
     logger.info(f"Get data request: {file_uid}")
 
     # check if the file exists
@@ -252,11 +264,9 @@ def setup(master_node_addr: str, attempts: int = 10) -> None:
     sock = context.socket(zmq.REQ)
     sock.connect(f"tcp://{master_node_addr}:{constants.PORT_STORAGE_NODE_ADVERTISEMENT}")
     for i in range(attempts):
-        # Create a new socket
-
         # Create a new message
         msg = messages_pb2.StorageNodeAdvertisementRequest()
-        msg.node.uid = NODE_UID.encode("utf-8")
+        msg.node.uid = str(NODE_UID).encode("utf-8")
         ipv4_addr: str = get_interface_ipaddress('eth0')  if is_raspberry_pi() else 'localhost'
         logger.debug(f"Using IPv4 address: {ipv4_addr}")
         msg.node.ipv4 = ipv4_addr
@@ -282,6 +292,81 @@ def setup(master_node_addr: str, attempts: int = 10) -> None:
     raise Exception("Failed to register with master node")
 
 
+def get_data_action(sock_rep_get_data: zmq.Socket) -> None:
+    assert sock_rep_get_data is not None and sock_rep_get_data.type == zmq.REP, f"sock_rep_get_data is not a REP socket, but a {sock_rep_get_data.type}"
+    logger.info("Received message on sock_rep_get_data socket")
+    received = sock_rep_get_data.recv_multipart()
+    try:
+        request = messages_pb2.Message.FromString(received[0])
+    except messages_pb2.DecodeError as e:
+        logger.error(f"Failed to parse Message: {e}")
+        return
+
+    match request.type:
+        case messages_pb2.MsgType.GET_DATA_REQUEST:
+            assert request.WhichOneof("payload") == "get_data_request", f"Message type is GET_DATA_REQUEST, but payload is not a GetDataRequest, but a {request.WhichOneof('payload')}"
+            get_data_request = request.get_data_request
+            logger.info(f"Received request for file {get_data_request.file_uid}")
+            # check if the file exists
+            f: Path = DATA_FOLDER / get_data_request.file_uid
+            if not f.exists():
+                logger.error(f"File {get_data_request.file_uid} not found")
+                response = messages_pb2.Message(
+                    type=messages_pb2.MsgType.GET_DATA_RESPONSE,
+                    get_data_response=messages_pb2.GetDataResponse(
+                        success=False
+                    )
+                )
+                sock_rep_get_data.send_multipart([response.SerializeToString()])
+            else:
+                # Read the file and send it back
+                with open(f"{DATA_FOLDER}/{get_data_request.file_uid}", "rb") as f:
+                    logger.info(f"Sending file {get_data_request.file_uid} back")
+                    response = messages_pb2.Message(
+                        type=messages_pb2.MsgType.GET_DATA_RESPONSE,
+                        get_data_response=messages_pb2.GetDataResponse(
+                            success=True,
+                            file_data=f.read()
+                        )
+                    )
+                    sock_rep_get_data.send_multipart([response.SerializeToString()])
+
+        case _:
+            logger.error(f"Received unknown message type: {request.type}")
+
+
+
+    # get_data_request = messages_pb2.GetDataRequest()
+    # try:
+    #     get_data_request.ParseFromString(received[0])
+    # except messages_pb2.DecodeError as e:
+    #     logger.error(f"Failed to parse GetDataRequest: {e}")
+    #     get_data_response = messages_pb2.GetDataResponse()
+    #     get_data_response.success = False
+    #     get_data_response_serialized = get_data_response.SerializeToString()
+    #     sock_rep_get_data.send_multipart([get_data_response_serialized])
+    #     continue
+    # else:
+    #     logger.info(f"Received request for file {get_data_request.file_uid}")
+    #     # check if the file exists
+    #     f: Path = DATA_FOLDER / get_data_request.file_uid
+    #     if not f.exists():
+    #         logger.error(f"File {get_data_request.file_uid} not found")
+    #         get_data_response = messages_pb2.GetDataResponse()
+    #         get_data_response.success = False
+    #         get_data_response_serialized = get_data_response.SerializeToString()
+    #         sock_rep_get_data.send_multipart([get_data_response_serialized])
+            
+    #     else:
+    #         # Read the file and send it back
+    #         with open(f"{DATA_FOLDER}/{get_data_request.file_uid}", "rb") as f:
+    #             logger.info(f"Sending file {get_data_request.file_uid} back")
+    #             get_data_response = messages_pb2.GetDataResponse()
+    #             get_data_response.success = True
+    #             get_data_response.file_data = f.read()
+    #             get_data_response_serialized = get_data_response.SerializeToString()
+    #             sock_rep_get_data.send_multipart([get_data_response_serialized])
+
 
 def main_loop() -> None:
     
@@ -292,7 +377,6 @@ def main_loop() -> None:
             socks = dict(poller.poll())
         except KeyboardInterrupt:
             break
-        pass
 
         # At this point one or multiple sockets may have received a message
 
@@ -306,38 +390,10 @@ def main_loop() -> None:
             subscriber_action(subscriber, sender)
 
         if sock_rep_get_data in socks:
-            logger.info("Received message on sock_rep_get_data socket")
-            received = sock_rep_get_data.recv_multipart()
-            get_data_request = messages_pb2.GetDataRequest()
-            get_data_request.ParseFromString(received[0])
-            if get_data_request.status == messages_pb2.GetDataRequest.Status.OK:
-                logger.info(f"Received request for file {get_data_request.file_uuid}")
-                # check if the file exists
-                f: Path = DATA_FOLDER / get_data_request.file_uuid
-                if not f.exists():
-                    logger.error(f"File {get_data_request.file_uuid} not found")
-                    get_data_response = messages_pb2.GetDataResponse()
-                    get_data_response.status = False
-                    get_data_response_serialized = get_data_response.SerializeToString()
-                    sock_rep_get_data.send_multipart([get_data_response_serialized])
-                    continue
-                    
-                # Read the file and send it back
-                with open(f"{DATA_FOLDER}/{get_data_request.file_uuid}", "rb") as f:
-                    logger.info(f"Sending file {get_data_request.file_uuid} back")
-                    get_data_response = messages_pb2.GetDataResponse()
-                    get_data_response.status = True
-                    get_data_response.file_data = f.read()
-                    get_data_response_serialized = get_data_response.SerializeToString()
-                    sock_rep_get_data.send_multipart([get_data_response_serialized])
+            get_data_action(sock_rep_get_data)
 
-            else:
-                logger.error(f"Received error request for file {get_data_request.file_uuid}")
-                get_data_response = messages_pb2.GetDataResponse()
-                get_data_response.status = False
-                get_data_response_serialized = get_data_response.SerializeToString()
-                sock_rep_get_data.send_multipart([get_data_response_serialized])
-                
+          
+
 
         # if sock_router_heartbeat_request in socks:
         #     message = sock_router_heartbeat_request.recv_multipart()

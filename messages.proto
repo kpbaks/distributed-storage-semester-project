@@ -1,19 +1,19 @@
 syntax = "proto3";
 
-message storedata_request
-{
-    string filename = 1;
-}
+// message storedata_request
+// {
+//     string filename = 1;
+// }
 
-message getdata_request
-{
-    string filename = 1;
-}
+// message getdata_request
+// {
+//     string filename = 1;
+// }
 
-message fragment_status_request
-{
-    string fragment_name = 1;
-}
+// message fragment_status_request
+// {
+//     string fragment_name = 1;
+// }
 
 message StorageNode
 {
@@ -32,10 +32,10 @@ message StorageNodeAdvertisementResponse
 	bool success = 1;
 }
 
-// Task 1.1 ---------------------------------------------------------------------------------------
+
 message GetDataRequest
 {
-	string file_uuid = 1; // The UUID of the file to be retrieved
+	string file_uid = 1; // The UUID of the file to be retrieved
 }
 
 message GetDataResponse
@@ -46,86 +46,84 @@ message GetDataResponse
 
 message StoreDataRequest
 {
-	string file_uuid = 1; // The UUID of the file to be stored
+	string file_uid = 1; // The UUID of the file to be stored
 	bytes file_data = 2; // The file data
 }
 
-message Task11Response
+message StoreDataResponse
 {
 	bool success = 1; // true if the file was successfully stored
 }
 
-// Task 1.2 ---------------------------------------------------------------------------------------
-
-message Task12Request
+message DelegateStoreDataRequest
 {
-	uint64 file_id = 1; // the primary key of the file from the `file_metadata` table
-	bytes file_data = 2; // the file data
-	// The REST server will construct this list.
-	// When a storage node receives this request, it will remove itself from the list.
-	// The list will be empty when the request reaches the last storage node.
-	repeated StorageNode nodes_to_forward_to = 3;
+	string file_uid = 1; // The UUID of the file to be stored
+	bytes file_data = 2; // The file data
+	repeated StorageNode nodes_to_forward_to = 3; // The list of nodes to forward the request to
 }
 
-message Task12Response
+message DelegateStoreDataResponse
 {
 	bool success = 1; // true if the file was successfully stored
 }
 
-
-message fhdfs_storedata_request
+enum MsgType
 {
-	uint64 stripe_id = 1;
-	uint64 fragment_id = 2;
-	// The REST server will construct this list.
-	// When a storage node receives this request, it will remove itself from the list.
-	// The list will be empty when the request reaches the last storage node.
-	repeated StorageNode nodes_to_forward_to = 3;
-	/* bytes stripe = 4; */
+	GET_DATA_REQUEST = 0;
+	GET_DATA_RESPONSE = 1;
+	STORE_DATA_REQUEST = 2;
+	STORE_DATA_RESPONSE = 3;
+	DELEGATE_STORE_DATA_REQUEST = 4;
+	DELEGATE_STORE_DATA_RESPONSE = 5;
+	STORAGE_NODE_ADVERTISEMENT_REQUEST = 6;
+	STORAGE_NODE_ADVERTISEMENT_RESPONSE = 7;
 }
 
-
-message HeartBeatResponse
+message Message
 {
-	string uid = 1;
-	bool is_alive = 2;
-}
-
-message fhdfs_storedata_response
-{
-	bool success = 1;
-	repeated string storage_ids = 2;
+	MsgType type = 1;
+	oneof payload
+	{
+		GetDataRequest get_data_request = 2;
+		GetDataResponse get_data_response = 3;
+		StoreDataRequest store_data_request = 4;
+		StoreDataResponse store_data_response = 5;
+		DelegateStoreDataRequest delegate_store_data_request = 6;
+		DelegateStoreDataResponse delegate_store_data_response = 7;
+		StorageNodeAdvertisementRequest storage_node_advertisement_request = 8;
+		StorageNodeAdvertisementResponse storage_node_advertisement_response = 9;
+	}
 }
 
 // ------------------------------------------------------------------------------------------------
 
-message fragment_status_response
-{
-    string fragment_name = 1;
-    bool is_present = 2;
-    string node_id = 3;
-    int32 count = 4;
-}
+// message fragment_status_response
+// {
+//     string fragment_name = 1;
+//     bool is_present = 2;
+//     string node_id = 3;
+//     int32 count = 4;
+// }
 
-enum request_type
-{
-    FRAGMENT_STATUS_REQ = 0;
-    FRAGMENT_DATA_REQ = 1;
-    STORE_FRAGMENT_DATA_REQ = 2;
-    RECODE_FRAGMENTS_REQ = 3;
-}
+// enum request_type
+// {
+//     FRAGMENT_STATUS_REQ = 0;
+//     FRAGMENT_DATA_REQ = 1;
+//     STORE_FRAGMENT_DATA_REQ = 2;
+//     RECODE_FRAGMENTS_REQ = 3;
+// }
 
-// This message is sent in the first frame of the request,
-// so the other side knows what format to expect in the second frame
-message header
-{
-    request_type request_type = 1;
-}
+// // This message is sent in the first frame of the request,
+// // so the other side knows what format to expect in the second frame
+// message header
+// {
+//     request_type request_type = 1;
+// }
 
-message recode_fragments_request
-{
-    string fragment_name = 1;
-    int32 symbol_count = 2;
-    int32 output_fragment_count = 3;
-}
+// message recode_fragments_request
+// {
+//     string fragment_name = 1;
+//     int32 symbol_count = 2;
+//     int32 output_fragment_count = 3;
+// }
 

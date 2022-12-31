@@ -1,4 +1,5 @@
 from typing import Any, Iterable, List
+from pathlib import Path
 
 YELLOW = "\033[93m"
 GREEN = "\033[92m"
@@ -24,6 +25,8 @@ TOPIC_HEARTBEAT = "heartbeat"
 PORT_HEARTBEAT = 5555
 
 PORT_GET_DATA = 5580
+
+SQLITE_DB_PATH = Path("files.db")
 
 PORT_STORAGE_NODE_ADVERTISEMENT = 5581
 TOTAL_NUMBER_OF_STORAGE_NODES: int = 4

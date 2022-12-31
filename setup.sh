@@ -13,13 +13,14 @@
 # declare -A NODES
 
 declare -a storage_nodes=(
-	storage0,
-	storage1,
-	storage2,
+	storage0
+	storage1
+	storage2
 	storage3
 )
 
 for node in "${storage_nodes[@]}"; do
+	sleep 2
 	echo "Creating folder $node"
 	if [ -d "$node" ]; then
 		echo "Folder $node already exists"
