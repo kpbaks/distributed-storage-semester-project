@@ -213,7 +213,6 @@ def download_file_task1_1(file_id: int) -> Response:
         [file_id]
     )
 
-
     if not cursor:
         return make_response({"message": "Error connecting to the database"}, 500)
 
@@ -221,8 +220,6 @@ def download_file_task1_1(file_id: int) -> Response:
     # Convert storage_nodes from sqlite3.Row object (which is not JSON-encodable) to
     # a standard Python dictionary simply by casting
     storage_nodes = [dict(sn) for sn in storage_nodes]
-
-    pp(storage_nodes)
 
     # Permute the storage nodes so that the order is random
     random.shuffle(storage_nodes)
@@ -239,8 +236,7 @@ def download_file_task1_1(file_id: int) -> Response:
                 file_uid=file_metadata["uid"]
             )
         )
-        # request = messages_pb2.GetDataRequest()
-        # request.file_uid = file_metadata["uid"]
+
         request_serialized = request.SerializeToString()
         sock.send_multipart([request_serialized])
 
@@ -251,7 +247,6 @@ def download_file_task1_1(file_id: int) -> Response:
         if msg.type != messages_pb2.MsgType.GET_DATA_RESPONSE:
             logger.error(f"Received invalid response from Storage Node {storage_node['uid']}")
             continue
-        
         
         if msg.get_data_response.success:
             file_data: bytes = msg.get_data_response.file_data
@@ -299,12 +294,7 @@ def download_file_task2_1(file_id: int) -> Response:
 
     l: int = args.max_erasures # Should probably be stored in the database
 
-
-
-    
-
     filedata_return = reedsolomon.get_file(fragment_names, l, filesize, data_req_socket, response_socket)
-
 
     return make_response({"message": "Not implemented"}, 501)
 
@@ -318,8 +308,6 @@ def download_file_task2_2(file_id: int) -> Response:
 
     return make_response({"message": "Not implemented"}, 501)
 
-
-
 @app.route("/files/<int:file_id>", methods=["GET"])
 def download_file(file_id: int) -> Response:
     logger.info(
@@ -327,11 +315,9 @@ def download_file(file_id: int) -> Response:
     )
 
     match args.mode:
-        case "task1.1":
+        case "task1.1" | "task1.2":
             return redirect(f"/files/{file_id}/task1.1", code=307)
-        case "task1.2":
             # The logic for Task 1.2 is the same as Task 1.1
-            return redirect(f"/files/{file_id}/task1.1", code=307)
         case "task2.1":
             return redirect(f"/files/{file_id}/task2.1", code=307)
         case "task2.2":
@@ -340,111 +326,8 @@ def download_file(file_id: int) -> Response:
             return make_response({"message": "Invalid mode"}, 400)
 
 
-    db = get_db()
-    cursor = db.execute("SELECT * FROM `file` WHERE `id`=?", [file_id])
-    if not cursor:
-        error_msg: str = "Error connecting to the database"
-        logger.error(error_msg)
-        return make_response({"message": error_msg}, 500)
-
-    database_row = cursor.fetchone()
-    if not database_row:
-        error_msg: str = "File {} not found".format(file_id)
-        logger.error(error_msg)
-        return make_response({"message": error_msg}, 404)
-
-    database_row = dict(database_row)
-
-    storage_details = database_row["storage_details"]
-
-    match args.mode:
-        case "raid1":
-            storage_ids: List[StorageId] = [
-                StorageId.from_string(id) for id in storage_details.split(";")
-            ]
-            replication_factor: float = math.sqrt(len(storage_ids))
-            assert replication_factor.is_integer() and replication_factor in [
-                2,
-                3,
-                4,
-            ], "Invalid number of fragments"
-            replication_factor = int(replication_factor)
-
-            # reshape the list of filenames into a 2D array of size (replication_factor, replication_factor)
-            list_of_storage_ids: List[List[StorageId]] = [
-                storage_ids[i: i + replication_factor]
-                for i in range(0, len(storage_ids), replication_factor)
-            ]
-
-            provider = Raid1StorageProvider(
-                replication_factor, send_task_socket, response_socket, data_req_socket
-            )
-            file_data = provider.get_file(list_of_storage_ids)
-
-        case "fake-hdfs":
-
-            pass
-        case "erasure_coding_rs":
-            pass
-        case "erasure_coding_rlnc":
-            pass
-        case _:
-            error_msg: str = "Invalid storage mode"
-            logger.error(error_msg)
-            return make_response({"message": error_msg}, 500)
-
-    # This is the hash of the file that is reconstructed
-    file_hash: str = sha256(file_data).hexdigest()
-    assert file_hash == database_row["hash"], "File hash mismatch"
-
-    logger.info(f"File {file_id} downloaded successfully")
-    return send_file(io.BytesIO(file_data), mimetype=database_row["content_type"])
-
-
-# if f['storage_mode'] == 'raid1':
-
-#     part1_filenames = storage_details['part1_filenames']
-#     part2_filenames = storage_details['part2_filenames']
-
-#     file_data = raid1.get_file(
-#         part1_filenames,
-#         part2_filenames,
-#         data_req_socket,
-#         response_socket
-#     )
-
-# elif f['storage_mode'] == 'erasure_coding_rs':
-
-#     coded_fragments = storage_details['coded_fragments']
-#     max_erasures = storage_details['max_erasures']
-
-#     file_data = reedsolomon.get_file(
-#         coded_fragments,
-#         max_erasures,
-#         f['size'],
-#         data_req_socket,
-#         response_socket
-#     )
-
-# elif f['storage_mode'] == 'erasure_coding_rlnc':
-
-#     coded_fragments = storage_details['coded_fragments']
-#     max_erasures = storage_details['max_erasures']
-
-#     file_data = rlnc.get_file(
-#         coded_fragments,
-#         max_erasures,
-#         f['size'],
-#         data_req_socket,
-#         response_socket
-#     )
-
-# return send_file(io.BytesIO(file_data), mimetype=f['content_type'])
-#
-
 # HTTP HEAD requests are served by the GET endpoint of the same URL,
 # so we'll introduce a new endpoint URL for requesting file metadata.
-
 
 # @app.route("/files/<int:file_id>/info", methods=["GET"])
 # def get_file_metadata(file_id: int):
@@ -633,7 +516,6 @@ def add_files_task1_1() -> Response:
 
         return sock
 
-    
     # Send file to chosen_storage_nodes
     for node in chosen_storage_nodes:
         client: zmq.Socket = send_file_to_node(node)
@@ -642,8 +524,6 @@ def add_files_task1_1() -> Response:
         resp_serialized = messages_pb2.Message.FromString(resp[0])
         logger.debug(f"Received response: {resp_serialized}")
         client.close()
-
-
     
     db = get_db()
     cursor = db.execute(
@@ -685,9 +565,7 @@ def add_files_task1_1() -> Response:
             (file_id, node.uid),
         )
 
-        db.commit()
-
-    # db.commit()
+    db.commit()
 
     return make_response({"id": file_id}, 201)
 
@@ -715,14 +593,14 @@ def add_files_task1_2() -> Response:
 
     msg = messages_pb2.Message(
         type=messages_pb2.MsgType.DELEGATE_STORE_DATA_REQUEST,
-        payload=messages_pb2.DelegateStoreDataRequest(
+        delegate_store_data_request=messages_pb2.DelegateStoreDataRequest(
             file_uid=str(file_uid).encode("UTF-8"),
             file_data=file_data,
             nodes_to_forward_to=[
                 messages_pb2.StorageNode(
                     uid=node.uid.encode("UTF-8"),
-                    ipv4=node.ipv4.encode("UTF-8"),
-                    port=node.port,
+                    ipv4=node.address.encode("UTF-8"),
+                    port_store_data=node.port_store_data,
                 ) for node in rest_nodes
             ],
         )
@@ -732,7 +610,7 @@ def add_files_task1_2() -> Response:
 
     # Create a REQ socket to send the request to the first node
     sock = context.socket(zmq.REQ)
-    sock.connect(f"tcp://{first_node.ipv4}:{first_node.port_store_data}")
+    sock.connect(f"tcp://{first_node.address}:{first_node.port_store_data}")
     sock.send_multipart([msg_serialized])
 
     # Wait for the response

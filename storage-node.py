@@ -35,9 +35,7 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-
-
-# check if folder exists, else create it
+# Check if folder exists, else create it
 if not os.path.exists(args.data_folder):
     logger.info(f"Folder {args.data_folder} does not exist, creating it")
     os.makedirs(args.data_folder)
@@ -265,7 +263,7 @@ def setup(master_node_addr: str, attempts: int = 10, timeout_between_attempts: i
         # Create a new message
         msg = messages_pb2.StorageNodeAdvertisementRequest()
         msg.node.uid = str(NODE_UID).encode("utf-8")
-        ipv4_addr: str = get_interface_ipaddress('eth0')  if is_raspberry_pi() else 'localhost'
+        ipv4_addr: str = get_interface_ipaddress('eth0') if is_raspberry_pi() else 'localhost'
         logger.debug(f"Using IPv4 address: {ipv4_addr}")
         msg.node.ipv4 = ipv4_addr
         # Get a random port for the storage node to listen on, that is not in use
@@ -309,7 +307,7 @@ def get_data_action(sock_rep_get_data: zmq.Socket) -> None:
             assert request.WhichOneof("payload") in ["get_data_request", "delegate_get_data_request"], f"Message type is GET_DATA_REQUEST, but payload is not a GetDataRequest, but a {request.WhichOneof('payload')}"
             get_data_request = request.get_data_request
             logger.info(f"Received request for file {get_data_request.file_uid}")
-            # check if the file exists
+            # Check if the file exists
             f: Path = DATA_FOLDER / get_data_request.file_uid
             if not f.exists():
                 logger.error(f"File {get_data_request.file_uid} not found")
@@ -379,7 +377,7 @@ def store_data_action() -> None:
         case messages_pb2.MsgType.DELEGATE_STORE_DATA_REQUEST:
             assert request.WhichOneof("payload") == "delegate_store_data_request", f"Message type is DELEGATE_STORE_DATA_REQUEST, but payload is not a DelegateStoreDataRequest, but a {request.WhichOneof('payload')}"
             delegate_store_data_request = request.delegate_store_data_request
-            logger.info(f"Received request to delegate store file {delegate_store_data_request.file_uid} to node {delegate_store_data_request.node_id}")
+            #logger.info(f"Received request to delegate store file {delegate_store_data_request.file_uid} to node {delegate_store_data_request.node_id}")
 
             f = DATA_FOLDER / delegate_store_data_request.file_uid
             success: bool = False
@@ -423,13 +421,13 @@ def store_data_action() -> None:
                         message_to_forward_serialized = message_to_forward.SerializeToString()
                         # Send the message to the head of the list
                         sock = context.socket(zmq.REQ)
-                        sock.connect(f"tcp://{head.ip}:{head.port_store_data}")
+                        sock.connect(f"tcp://{head.ipv4}:{head.port_store_data}")
                         sock.send_multipart([message_to_forward_serialized])
-                        logger.info(f"Forwarded request to delegate store file {delegate_store_data_request.file_uid} to node {head.node_id}, waiting for response...")
+                        logger.info(f"Forwarded request to delegate store file {delegate_store_data_request.file_uid} to node {head.uid}, waiting for response...")
 
                         # Receive the response
                         received = sock.recv_multipart()
-                        logger.info(f"Received response from node {head.node_id}")
+                        logger.info(f"Received response from node {head.uid}")
 
                         try:
                             response = messages_pb2.Message.FromString(received[0])
@@ -441,9 +439,9 @@ def store_data_action() -> None:
                                 case messages_pb2.MsgType.DELEGATE_STORE_DATA_RESPONSE:
                                     assert response.WhichOneof("payload") == "delegate_store_data_response", f"Message type is DELEGATE_STORE_DATA_RESPONSE, but payload is not a DelegateStoreDataResponse, but a {response.WhichOneof('payload')}"
                                     delegate_store_data_response = response.delegate_store_data_response
-                                    logger.info(f"Received response to delegate store file {delegate_store_data_request.file_uid} to node {delegate_store_data_request.node_id}")
+                                    logger.info(f"Received response to delegate store file {delegate_store_data_request.file_uid} to node {head.uid}")
                                     if delegate_store_data_response.success:
-                                        logger.info(f"Successfully delegated store file {delegate_store_data_request.file_uid} to node {delegate_store_data_request.node_id}")
+                                        logger.info(f"Successfully delegated store file {delegate_store_data_request.file_uid} to node {head.uid}")
                                         # Send the response to the client
                                         response = messages_pb2.Message(
                                             type=messages_pb2.MsgType.DELEGATE_STORE_DATA_RESPONSE,
@@ -454,7 +452,7 @@ def store_data_action() -> None:
                                         response_serialized = response.SerializeToString()
                                         sock_rep_store_data.send_multipart([response_serialized])
                                     else:
-                                        logger.error(f"Failed to delegate store file {delegate_store_data_request.file_uid} to node {delegate_store_data_request.node_id}")
+                                        logger.error(f"Failed to delegate store file {delegate_store_data_request.file_uid} to node {head.uid}")
                                         sys.exit(1)
                                 case _:
                                     logger.error(f"Received unknown message type: {response.type}")
@@ -490,10 +488,6 @@ def main_loop() -> None:
 
         if sock_rep_store_data in socks:
             store_data_action()
-
-
-          
-
 
         # if sock_router_heartbeat_request in socks:
         #     message = sock_router_heartbeat_request.recv_multipart()

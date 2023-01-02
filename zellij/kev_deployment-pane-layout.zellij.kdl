@@ -1,47 +1,59 @@
 // https://zellij.dev/documentation/layouts.html
 
 layout {
-	pane {
-		command "python"
-		args "rest-server.py" "-k" "4" "-l" "2" "-m" "fake-hdfs"
-		close_on_exit false
-		start_suspended false
-		name "rest-server"
-		size "60%"
-	}
 	pane split_direction="vertical" {
 		pane {
 			command "python"
-			args "storage-node.py" "storage-node0" "-m" "fake-hdfs"
-			name "storage-node0"
+			args "rest-server.py" "-k" "3" "-l" "1" "-m" "task1.2"
 			close_on_exit false
+			start_suspended false
+			name "rest-server"
+			size "50%"
 		}
 		pane {
-			command "python"
-			args "storage-node.py" "storage-node1" "-m" "fake-hdfs"
-			name "storage-node1"
-			close_on_exit false
+			name "client"
+			focus true
+			// close_on_exit true
 		}
 	}
-	pane split_direction="vertical" {
-		pane {
+	
+	pane split_direction="horizontal" {
+		pane split_direction="vertical" {
+			pane {
 			command "python"
-			args "storage-node.py" "storage-node2" "-m" "fake-hdfs"
-			name "storage-node2"
-			close_on_exit false
+			args "storage-node.py" "storage1"
+			name "storage1"
+			// close_on_exit true
 		}
 		pane {
 			command "python"
-			args "storage-node.py" "storage-node3" "-m" "fake-hdfs"
-			name "storage-node3"
-			close_on_exit false
+			args "storage-node.py" "storage2"
+			name "storage2"
+			// close_on_exit true
 		}
-	}
-}
+		}
 
+		pane split_direction="vertical" {
+		pane {
+			command "python"
+			args "storage-node.py" "storage3"
+			name "storage3"
+			// close_on_exit true
+		}
+		pane {
+			command "python"
+			args "storage-node.py" "storage4"
+			name "storage4"
+			// close_on_exit true
+		}
+	}
+		}
+		
+
+}
 
 keybinds {
     shared {
-        bind "Ctrl c" { CloseTab; }
+        bind "Ctrl q" { CloseTab; }
     }
 }
