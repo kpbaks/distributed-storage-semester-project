@@ -2,9 +2,10 @@
 
 layout {
 	pane split_direction="vertical" {
+		size "30%"
 		pane {
 			command "python"
-			args "rest-server.py" "-k" "3" "-l" "1" "-m" "task1.2"
+			args "rest-server.py" "-k" "3" "-l" "1" "-m" "task2.2"
 			close_on_exit false
 			start_suspended false
 			name "rest-server"
@@ -34,22 +35,21 @@ layout {
 		}
 
 		pane split_direction="vertical" {
-		pane {
-			command "python"
-			args "storage-node.py" "storage3"
-			name "storage3"
-			// close_on_exit true
-		}
-		pane {
-			command "python"
-			args "storage-node.py" "storage4"
-			name "storage4"
-			// close_on_exit true
+			pane {
+				command "python"
+				args "storage-node.py" "storage3"
+				name "storage3"
+				// close_on_exit true
+			}
+			pane {
+				command "python"
+				args "storage-node.py" "storage4"
+				name "storage4"
+				// close_on_exit true
+			}
 		}
 	}
-		}
 		
-
 }
 
 keybinds {

@@ -28,12 +28,12 @@ from flask import (Flask, Request, Response, g, make_response, redirect,
 
 # import rlnc
 import constants
-import messages_pb2  # Generated Protobuf messages
+import messages_pb2 as protobuf_msgs  # Generated Protobuf messages
 import reedsolomon
 # from reedsolomon import ReedSolomonStorageProvider
 from data_models.storage_id import StorageId
 from data_models.storage_node import StorageNode
-from raid1 import Raid1StorageProvider
+# from raid1 import Raid1StorageProvider
 from utils import (create_logger, flatten_list,
                    get_log_level_name_from_effective_level, is_raspberry_pi)
 
@@ -233,9 +233,9 @@ def download_file_task1_1(file_id: int) -> Response:
             f"Connecting to Storage Node {storage_node['friendly_name']} at {endpoint}"
         )
         sock.connect(endpoint)
-        request = messages_pb2.Message(
-            type=messages_pb2.MsgType.GET_DATA_REQUEST,
-            get_data_request=messages_pb2.GetDataRequest(
+        request = protobuf_msgs.Message(
+            type=protobuf_msgs.MsgType.GET_DATA_REQUEST,
+            get_data_request=protobuf_msgs.GetDataRequest(
                 file_uid=file_metadata["uid"]),
         )
 
@@ -245,8 +245,8 @@ def download_file_task1_1(file_id: int) -> Response:
         # Set timeout for receiving the response from the Storage Node
         # sock.RCVTIMEO = time_to_wait(file_metadata["size"])
         response: List[bytes] = sock.recv_multipart()
-        msg = messages_pb2.Message.FromString(response[0])
-        if msg.type != messages_pb2.MsgType.GET_DATA_RESPONSE:
+        msg = protobuf_msgs.Message.FromString(response[0])
+        if msg.type != protobuf_msgs.MsgType.GET_DATA_RESPONSE:
             logger.error(
                 f"Received invalid response from Storage Node {storage_node['uid']}"
             )
@@ -275,36 +275,45 @@ def download_file_task2_1(file_id: int) -> Response:
     logger.info(f"Received request to download file {file_id} using Task 2.1")
 
     # Get the file metadata from the database
+    file_metadata = get_file_metadata_from_db(file_id)
+    if not file_metadata:
+        err_msg = f"File {file_id} not found"
+        logger.error(err_msg)
+        return make_response({"message": err_msg}, 404)
+
     db = get_db()
+
+    # Get cursor to get the storage nodes that have the file
     cursor = db.execute(
-        """"
-        SELECT * FROM `file_metadata`
-        WHERE `file_id` = ?
-    """,
-        (file_id),
+        """
+        SELECT f.uid AS fragment_uid
+        FROM `storage_nodes` AS sn
+        JOIN `fragments` AS f
+            ON f.file_metadata_id = ?
+        WHERE sn.storage_node_id = f.storage_node_id
+        """,
+        [file_id],
     )
+    
     if not cursor:
         error_msg: str = "Error connecting to the database"
         logger.error(error_msg)
         return make_response({"message": error_msg}, 500)
 
-    file_metadata = cursor.fetchone()
-    if not file_metadata:
-        error_msg: str = f"File {file_id} not found"
-        logger.error(error_msg)
-        return make_response({"message": error_msg}, 404)
-
-    # Convert file_metadata from sqlite3.Row object (which is not JSON-encodable) to a standard Python dictionary simply by casting
-    file_metadata = dict(file_metadata)
-    filesize = file_metadata["filesize"]
+    # Get the storage nodes that have the file
+    fragment_uids = cursor.fetchall()
+    fragment_names = [fragment_uid[0] for fragment_uid in fragment_uids]
 
     l: int = args.max_erasures  # Should probably be stored in the database
+
+    filesize = file_metadata['size']
 
     filedata_return = reedsolomon.get_file(
         fragment_names, l, filesize, data_req_socket, response_socket
     )
 
-    return make_response({"message": "Not implemented"}, 501)
+
+    return send_file(io.BytesIO(filedata_return), mimetype=file_metadata["content_type"])
 
 
 @app.route("/files/<int:file_id>/task2.2", methods=["GET"])
@@ -312,9 +321,95 @@ def download_file_task2_2(file_id: int) -> Response:
     """
     Download a file from the storage system using Task 2.2.
     """
+
     logger.info(f"Received request to download file {file_id} using Task 2.2")
 
-    return make_response({"message": "Not implemented"}, 501)
+    file_metadata = get_file_metadata_from_db(file_id)
+    if not file_metadata:
+        err_msg = f"File {file_id} not found"
+        logger.error(err_msg)
+        return make_response({"message": err_msg}, 404)
+
+    db = get_db()
+
+    # Get cursor to get the storage nodes that have the file
+    cursor = db.execute(
+        """
+        SELECT sn.*, f.uid AS fragment_uid
+        FROM `storage_nodes` AS sn
+        JOIN `fragments` AS f
+            ON f.file_metadata_id = ?
+        WHERE sn.storage_node_id = f.storage_node_id
+        """,
+        [file_id],
+    )
+    
+    if not cursor:
+        error_msg: str = "Error connecting to the database"
+        logger.error(error_msg)
+        return make_response({"message": error_msg}, 500)
+
+    # Get the storage nodes that have the file
+    rows = cursor.fetchall()
+    rows_as_dict = [dict(row) for row in rows]
+
+    l: int = args.max_erasures  # Should probably be stored in the database
+    filesize = file_metadata['size']
+
+    pp(rows_as_dict)
+
+    msg = protobuf_msgs.Message(
+        type=protobuf_msgs.MsgType.GET_FRAGMENTS_AND_DECODE_THEM_REQUEST,
+        get_fragments_and_decode_them_request=protobuf_msgs.GetFragmentsAndDecodeThemRequest(
+            l=l,
+            filesize=filesize,
+            fragment_uids_to_storage_nodes = {
+                row['fragment_uid']: protobuf_msgs.StorageNode(
+                    uid=row['uid'],
+                    ipv4=row['address'],
+                    port_get_data=row['port_get_data'],
+                    port_store_data=row['port_store_data'],
+                )
+                for row in rows_as_dict
+            }
+        )
+    )
+
+    msg_serialized = msg.SerializeToString()
+
+    # Pick random node
+    storage_node = random.choice(rows_as_dict)
+
+    ipv4_addr = storage_node['address']
+    port_get_data = storage_node['port_get_data']
+
+    sock = context.socket(zmq.REQ)
+    sock.connect(f"tcp://{ipv4_addr}:{port_get_data}")
+    sock.send_multipart([msg_serialized])
+
+    # await response
+    response = sock.recv_multipart()
+    sock.close()
+
+    try:
+        msg = protobuf_msgs.Message.FromString(response[0])
+    except zmq.error.ZMQError as e:
+        logger.error(f"Error receiving message: {e}")
+        return make_response({"message": "Error receiving message"}, 500)
+
+    # Assert that the message is of the correct type i.e. GetDataResponse
+    if msg.type != protobuf_msgs.MsgType.GET_DATA_RESPONSE:
+        logger.error(f"Received message of type {msg.type} instead of GetDataResponse")
+        return make_response({"message": "Error receiving message"}, 500)
+    
+    file_data = msg.get_data_response.file_data
+    success = msg.get_data_response.success
+    if not success:
+        logger.error(f"Error getting file data: {file_data}")
+        return make_response({"message": "Error getting file data"}, 500)
+    
+    return send_file(io.BytesIO(file_data), mimetype=file_metadata["content_type"])
+
 
 
 @app.route("/files/<int:file_id>", methods=["GET"])
@@ -333,119 +428,6 @@ def download_file(file_id: int) -> Response:
             return redirect(f"/files/{file_id}/task2.2", code=307)
         case _:
             return make_response({"message": "Invalid mode"}, 400)
-
-
-# HTTP HEAD requests are served by the GET endpoint of the same URL,
-# so we'll introduce a new endpoint URL for requesting file metadata.
-
-# @app.route("/files/<int:file_id>/info", methods=["GET"])
-# def get_file_metadata(file_id: int):
-
-#     db = get_db()
-#     cursor = db.execute("SELECT * FROM `file` WHERE `id`=?", [file_id])
-#     if not cursor:
-#         return make_response({"message": "Error connecting to the database"}, 500)
-
-#     f = cursor.fetchone()
-#     if not f:
-#         return make_response({"message": "File {} not found".format(file_id)}, 404)
-
-#     # Convert to a Python dictionary
-#     f = dict(f)
-#     print("File: %s" % f)
-
-#     return make_response(f)
-
-# @app.route("/files_mp", methods=["POST"])
-# def add_files_multipart():
-#     # Flask separates files from the other form fields
-#     payload = request.form
-#     files = request.files
-
-#     # Make sure there is a file in the request
-#     if not files or not files.get("file"):
-#         logging.error("No file was uploaded in the request!")
-#         return make_response("File missing!", 400)
-
-#     # Reference to the file under 'file' key
-#     file = files.get("file")
-#     # The sender encodes a the file name and type together with the file contents
-#     filename = file.filename
-#     content_type = file.mimetype
-#     # Load the file contents into a bytearray and measure its size
-#     data = bytearray(file.read())
-#     size = len(data)
-#     print(
-#         "File received: %s, size: %d bytes, type: %s" % (filename, size, content_type)
-#     )
-
-#     # Read the requested storage mode from the form (default value: 'raid1')
-#     storage_mode = payload.get("storage", "raid1")
-#     print("Storage mode: %s" % storage_mode)
-
-#     if storage_mode == "raid1":
-#         file_data_1_names, file_data_2_names = raid1.store_file(
-#             data, send_task_socket, response_socket
-#         )
-
-#         storage_details = {
-#             "part1_filenames": file_data_1_names,
-#             "part2_filenames": file_data_2_names,
-#         }
-
-#     elif storage_mode == "erasure_coding_rs":
-#         # Reed Solomon code
-#         # Parse max_erasures (everything is a string in request.form,
-#         # we need to convert to int manually), set default value to 1
-#         max_erasures = int(payload.get("max_erasures", 1))
-#         print("Max erasures: %d" % (max_erasures))
-
-#         # Store the file contents with Reed Solomon erasure coding
-#         fragment_names = reedsolomon.store_file(
-#             data, max_erasures, send_task_socket, response_socket
-#         )
-
-#         storage_details = {
-#             "coded_fragments": fragment_names,
-#             "max_erasures": max_erasures,
-#         }
-
-#     elif storage_mode == "erasure_coding_rlnc":
-#         # RLNC
-#         max_erasures = int(payload.get("max_erasures", 1))
-#         print("Max erasures: %d" % (max_erasures))
-
-#         subfragments_per_node = int(payload.get("subfragments_per_node", 3))
-#         print("Subfragments per node: %d" % (subfragments_per_node))
-
-#         # Store the file contents with Random Linear Network Coding encoding
-#         fragment_names = rlnc.store_file(
-#             data, max_erasures, subfragments_per_node, send_task_socket, response_socket
-#         )
-
-#         storage_details = {
-#             "coded_fragments": fragment_names,
-#             "max_erasures": max_erasures,
-#             "subfragments_per_node": subfragments_per_node,
-#         }
-
-#         print(f"File stored: {storage_details}")
-
-#     else:
-#         logging.error("Unexpected storage mode: %s" % storage_mode)
-#         return make_response("Wrong storage mode", 400)
-
-#     # Insert the File record in the DB
-#     import json
-
-#     db = get_db()
-#     cursor = db.execute(
-#         "INSERT INTO `file`(`filename`, `size`, `content_type`, `storage_mode`, `storage_details`) VALUES (?,?,?,?,?)",
-#         (filename, size, content_type, storage_mode, json.dumps(storage_details)),
-#     )
-#     db.commit()
-
-#     return make_response({"id": cursor.lastrowid}, 201)
 
 
 def get_storage_nodes_from_db() -> list[StorageNode]:
@@ -510,9 +492,9 @@ def add_files_task1_1() -> Response:
     file_uid = uuid.uuid4()
 
     def send_file_to_node(node: StorageNode) -> zmq.Socket:
-        msg = messages_pb2.Message(
-            type=messages_pb2.MsgType.STORE_DATA_REQUEST,
-            store_data_request=messages_pb2.StoreDataRequest(
+        msg = protobuf_msgs.Message(
+            type=protobuf_msgs.MsgType.STORE_DATA_REQUEST,
+            store_data_request=protobuf_msgs.StoreDataRequest(
                 file_uid=str(file_uid), file_data=file_data
             ),
         )
@@ -529,7 +511,7 @@ def add_files_task1_1() -> Response:
         client: zmq.Socket = send_file_to_node(node)
         logger.debug(f"Sent file to {node.address}:{node.port_store_data}")
         resp = client.recv_multipart()  # await response
-        resp_serialized = messages_pb2.Message.FromString(resp[0])
+        resp_serialized = protobuf_msgs.Message.FromString(resp[0])
         logger.debug(f"Received response: {resp_serialized}")
         client.close()
 
@@ -599,13 +581,13 @@ def add_files_task1_2() -> Response:
 
     file_uid = uuid.uuid4()
 
-    msg = messages_pb2.Message(
-        type=messages_pb2.MsgType.DELEGATE_STORE_DATA_REQUEST,
-        delegate_store_data_request=messages_pb2.DelegateStoreDataRequest(
+    msg = protobuf_msgs.Message(
+        type=protobuf_msgs.MsgType.DELEGATE_STORE_DATA_REQUEST,
+        delegate_store_data_request=protobuf_msgs.DelegateStoreDataRequest(
             file_uid=str(file_uid).encode("UTF-8"),
             file_data=file_data,
             nodes_to_forward_to=[
-                messages_pb2.StorageNode(
+                protobuf_msgs.StorageNode(
                     uid=node.uid.encode("UTF-8"),
                     ipv4=node.address.encode("UTF-8"),
                     port_store_data=node.port_store_data,
@@ -625,13 +607,13 @@ def add_files_task1_2() -> Response:
     # Wait for the response
     received = sock.recv_multipart()
     try:
-        response = messages_pb2.Message.FromString(received[0])
+        response = protobuf_msgs.Message.FromString(received[0])
         # response = messages_pb2.DelegateStoreDataResponse.FromString(received[0])
-    except messages_pb2.DecodeError as e:
+    except protobuf_msgs.DecodeError as e:
         logger.error(f"Error decoding response: {e}")
         return make_response({"error": "Error decoding response"}, 500)
     else:
-        if response.type != messages_pb2.MsgType.DELEGATE_STORE_DATA_RESPONSE:
+        if response.type != protobuf_msgs.MsgType.DELEGATE_STORE_DATA_RESPONSE:
             logger.error(f"Unexpected response type: {response.type}")
             return make_response({"error": "Unexpected response type"}, 500)
 
@@ -696,41 +678,47 @@ def add_files_task2_1() -> Response:
     )
 
     l: int = args.max_erasures
-    data = bytearray(file_data)
+    data = bytearray(file_data) # Kodo expects a bytearray
 
+    # Encode the data with REED-SOLOMON
     fragment_names, fragment_data = reedsolomon.store_file(
-        data, l, send_task_socket, response_socket
+        data, l
     )
 
-    logger.info(f"fragment_data: {fragment_data}")
+    file_uid = uuid.uuid4()
 
-    def send_file_to_node(
-        node: StorageNode, fragment_name: str, fragment_data: bytes
-    ) -> None:
-        request = messages_pb2.StoreDataRequest()
-        logger.debug(
-            f"Sending file to node {node.uid} with fragment name {fragment_name}"
+    def send_file_to_node(node: StorageNode, fragment_name: str, fragment_data: bytes) -> zmq.Socket:
+        assert isinstance(fragment_name, str), f"Expected str, got {type(fragment_name)}"
+        assert isinstance(fragment_data, bytes), f"Expected bytes, got {type(fragment_data)}"
+
+        msg = protobuf_msgs.Message(
+            type=protobuf_msgs.MsgType.STORE_DATA_REQUEST,
+            store_data_request=protobuf_msgs.StoreDataRequest(
+                file_uid=fragment_name, 
+                file_data=fragment_data
+            ),
         )
+        msg_serialized = msg.SerializeToString()
 
-        request.file_uuid = str(fragment_name)
-        request.file_data = fragment_data
+        sock = context.socket(zmq.REQ)
+        sock.connect(f"tcp://{node.address}:{node.port_store_data}")
+        sock.send_multipart([msg_serialized])
 
-        serialized_request = request.SerializeToString()
-
-        send_task_socket.send_multipart(
-            [str(node.uid).encode("UTF-8"), serialized_request]
-        )
+        return sock
 
     storage_nodes = get_storage_nodes_from_db()
+    assert len(storage_nodes) == constants.TOTAL_NUMBER_OF_STORAGE_NODES, f"Expected {constants.TOTAL_NUMBER_OF_STORAGE_NODES} storage nodes, got {len(storage_nodes)}"
 
-    for node, fragment_name, fragment in zip(
-        storage_nodes, fragment_names, fragment_data
-    ):
-        send_file_to_node(node, fragment_name, fragment)
 
-    for _ in range(constants.TOTAL_NUMBER_OF_STORAGE_NODES):
-        resp = response_socket.recv_string()
-        print("Received: %s" % resp)
+    # Send file to chosen_storage_nodes
+    for node, fragment, name in zip(storage_nodes ,fragment_data, fragment_names):
+        client: zmq.Socket = send_file_to_node(node,fragment_data=fragment, fragment_name=name)
+        logger.debug(f"Sent file to {node.address}:{node.port_store_data}")
+        resp = client.recv_multipart()  # await response
+        resp_serialized = protobuf_msgs.Message.FromString(resp[0])
+        logger.debug(f"Received response: {resp_serialized}")
+        client.close()
+
 
     db = get_db()
     cursor = db.execute(
@@ -740,40 +728,38 @@ def add_files_task2_1() -> Response:
                 `filename`,
                 `size`,
                 `content_type`,
+                `uid`,
                 `storage_mode`
             )
         VALUES
-            (?,?,?,?)
+            (?,?,?,?,?)
         """,
-        (filename, filesize, content_type, "reedsolomon"),
+        (filename, filesize, content_type, str(file_uid),  "reedsolomon"),
     )
 
     db.commit()
 
     file_id: int = cursor.lastrowid
 
-    for node in storage_nodes:
+    for fragment_name, node in zip(fragment_names, storage_nodes):
         db.execute(
             f"""
         INSERT INTO
-            `replicas` (
+            `fragments` (
                 `file_metadata_id`,
-                'storage_node_id'
+                'storage_node_id',
+                'uid'
             )
         VALUES (
             (SELECT file_metadata_id FROM file_metadata WHERE file_metadata_id = ?),
-            (SELECT storage_node_id FROM storage_nodes WHERE uid = ?)
+            (SELECT storage_node_id FROM storage_nodes WHERE uid = ?),
+            ?
         )
         """,
-            (file_id, node.uid),
+            (file_id, node.uid, fragment_name),
         )
 
     db.commit()
-
-    filedata_return = reedsolomon.get_file(
-        fragment_names, l, filesize, data_req_socket, response_socket
-    )
-    logger.info(f"filedata_return: {filedata_return}")
 
     return make_response({"id": file_id}, 201)
 
@@ -785,7 +771,120 @@ def add_files_task2_2() -> Response:
         request
     )
 
-    return make_response({"id": cursor.lastrowid}, 201)
+    storage_nodes = get_storage_nodes_from_db()
+    assert len(storage_nodes) == constants.TOTAL_NUMBER_OF_STORAGE_NODES, f"Expected {constants.TOTAL_NUMBER_OF_STORAGE_NODES} storage nodes, got {len(storage_nodes)}"
+
+    random.shuffle(storage_nodes)
+
+    node_that_does_the_encoding = storage_nodes[0]
+    nodes_that_receive_fragments = storage_nodes[1:]
+    
+    l: int = args.max_erasures
+    file_uid = uuid.uuid4()
+
+    msg = protobuf_msgs.Message(
+        type=protobuf_msgs.MsgType.ENCODE_AND_FORWARD_FRAGMENTS_REQUEST,
+        encode_and_forward_fragments_request=protobuf_msgs.EncodeAndForwardFragmentsRequest(
+            l=l,
+            file_uid=str(file_uid).encode("UTF-8"),
+            file_data=file_data,
+            nodes_to_forward_to=[
+                protobuf_msgs.StorageNode(
+                    uid=node.uid.encode("UTF-8"),
+                    ipv4=node.address.encode("UTF-8"),
+                    port_store_data=node.port_store_data,
+                )
+                for node in nodes_that_receive_fragments
+            ],
+        ),
+    )
+
+    logger.debug(f" {msg}")
+
+    msg_serialized = msg.SerializeToString()
+
+
+    # Create a REQ socket to send the request to the first node
+    sock = context.socket(zmq.REQ)
+    sock.connect(f"tcp://{node_that_does_the_encoding.address}:{node_that_does_the_encoding.port_store_data}")
+    sock.send_multipart([msg_serialized])
+
+    file_uid = uuid.uuid4()
+
+    # Wait for the response
+    received = sock.recv_multipart()
+
+    try:
+        response = protobuf_msgs.Message.FromString(received[0])
+        # response = messages_pb2.DelegateStoreDataResponse.FromString(received[0])
+    except protobuf_msgs.DecodeError as e:
+        logger.error(f"Error decoding response: {e}")
+        return make_response({"error": "Error decoding response"}, 500)
+    else:
+        if response.type != protobuf_msgs.MsgType.ENCODE_AND_FORWARD_FRAGMENTS_RESPONSE:
+            logger.error(f"Unexpected response type: {response.type}")
+            return make_response({"error": "Unexpected response type"}, 500)
+
+        logger.info(f"Received response: {response}")
+
+        fragment_uids_to_storage_nodes = response \
+            .encode_and_forward_fragments_response \
+            .fragment_uids_to_storage_nodes
+
+        db = get_db()
+        cursor = db.execute(
+            """
+        INSERT INTO
+            `file_metadata`(
+                `filename`,
+                `size`,
+                `content_type`,
+                `uid`,
+                `storage_mode`
+            )
+        VALUES
+            (?,?,?,?,?)
+        """,
+            [
+                filename,
+                filesize,
+                content_type,
+                str(file_uid),
+                "reedsolomon_with_delegation",
+            ],
+        )
+
+        db.commit()
+
+        file_id: int = cursor.lastrowid
+
+        for fragment_uid, node in fragment_uids_to_storage_nodes.items():
+            print(f"fragment_uid: {fragment_uid}")
+            print(f"node: {node}")
+
+            db.execute(
+                f"""
+            INSERT INTO
+                `fragments` (
+                    `file_metadata_id`,
+                    'storage_node_id',
+                    'uid'
+                )
+            VALUES (
+                (SELECT file_metadata_id FROM file_metadata WHERE file_metadata_id = ?),
+                (SELECT storage_node_id FROM storage_nodes WHERE uid = ?),
+                ?
+            )
+            """,
+                (file_id, node.uid, fragment_uid),
+            )
+
+        db.commit()
+        logger.info(f"Inserted file with id {file_id} into database")
+        return make_response({"id": cursor.lastrowid}, 201)
+    finally:
+        sock.close()
+
 
 
 @app.route("/files", methods=["POST"])
@@ -807,90 +906,30 @@ def add_files() -> Response:
         case _:
             return make_response("Wrong storage mode", 400)
 
-    payload: Any | None = request.get_json()
-    filename: str = payload.get("filename")
-    content_type: str = payload.get("content_type")
-    file_data: bytes = base64.b64decode(payload.get("contents_b64"))
-    filesize: int = len(file_data)
-    uid: uuid.UUID = uuid.uuid4()
-    logger.info(
-        f"File received: {filename}, size: {filesize} bytes, type: {content_type}"
-    )
 
-    match args.mode:
-        case "raid1":
-            provider = Raid1StorageProvider(
-                args.replication_factor,
-                send_task_socket,
-                response_socket,
-                data_req_socket,
-            )
-            list_of_storage_ids = provider.store_file(file_data, uid=uid)
+# @app.route("/services/rs_repair", methods=["GET"])
+# def rs_repair() -> Response:
+#     # Retrieve the list of files stored using Reed-Solomon from the database
+#     db = get_db()
+#     cursor = db.execute(
+#         "SELECT `id`, `storage_details`, `size` FROM `file` WHERE `storage_mode`='reedsolomon'"
+#     )
+#     if not cursor:
+#         return make_response({"message": "Error connecting to the database"}, 500)
 
-            storage_ids: List[StorageId] = []
+#     rs_files = cursor.fetchall()
+#     rs_files = [dict(file) for file in rs_files]
 
-            for i, stripe_names in enumerate(list_of_storage_ids):
-                for j, _ in enumerate(stripe_names):
-                    storage_id = StorageId(uid, i, j)
-                    storage_ids.append(storage_id)
+#     fragments_missing, fragments_repaired = reedsolomon.start_repair_process(
+#         rs_files, repair_socket, repair_response_socket
+#     )
 
-            logger.debug(f"Storage details: {storage_ids}")
-        case "fake-hdfs":
-            pass
-
-        case "erasure_coding_rs":
-            pass
-        case "erasure_coding_rlnc":
-            pass
-        case _:
-            logging.error(f"Unexpected storage mode: {args.mode}")
-            return make_response("Wrong storage mode", 400)
-
-    file_hash: str = sha256(file_data).hexdigest()
-    logger.debug(f"File hash: {file_hash}")
-    storage_details: str = ";".join(
-        [str(storage_id) for storage_id in storage_ids])
-    logger.debug(f"Storage details: {storage_details}")
-
-    db = get_db()
-    cursor = db.execute(
-        "INSERT INTO `file`(`filename`, `size`, `content_type`, `storage_mode`, `storage_details`, `hash`) VALUES (?,?,?,?,?,?)",
-        (filename, filesize, content_type, args.mode, storage_details, file_hash),
-    )
-
-    db.commit()
-
-    logger.info(
-        f"File stored: {filename}, size: {filesize} bytes, type: {content_type}, with id: {cursor.lastrowid}"
-    )
-
-    # Return the ID of the new file record with HTTP 201 (Created) status code
-    return make_response({"id": cursor.lastrowid}, 201)
-
-
-@app.route("/services/rs_repair", methods=["GET"])
-def rs_repair() -> Response:
-    # Retrieve the list of files stored using Reed-Solomon from the database
-    db = get_db()
-    cursor = db.execute(
-        "SELECT `id`, `storage_details`, `size` FROM `file` WHERE `storage_mode`='reedsolomon'"
-    )
-    if not cursor:
-        return make_response({"message": "Error connecting to the database"}, 500)
-
-    rs_files = cursor.fetchall()
-    rs_files = [dict(file) for file in rs_files]
-
-    fragments_missing, fragments_repaired = reedsolomon.start_repair_process(
-        rs_files, repair_socket, repair_response_socket
-    )
-
-    return make_response(
-        {
-            "fragments_missing": fragments_missing,
-            "fragments_repaired": fragments_repaired,
-        }
-    )
+#     return make_response(
+#         {
+#             "fragments_missing": fragments_missing,
+#             "fragments_repaired": fragments_repaired,
+#         }
+#     )
 
 
 @app.errorhandler(500)
@@ -918,7 +957,7 @@ def task_send_heartbeat_request() -> None:
             logger.warn(f"Timeout reached [{num_timeout_reached}]")
         else:
             # Expect reply to be of type HeartBeatResponse
-            resp = messages_pb2.HeartBeatResponse()
+            resp = protobuf_msgs.HeartBeatResponse()
             resp.ParseFromString(reply)
             uid = uuid.UUID(bytes=resp.uid)
             storage_nodes_online = storage_nodes_online & uid
@@ -959,7 +998,7 @@ for i in range(constants.TOTAL_NUMBER_OF_STORAGE_NODES):
     # Receive the advertisement from the storage node
     msg = sock_pull_storage_node_advertisement.recv()  # TODO: add timeout
     # Expect msg to be of type StorageNodeAdvertisement
-    advertisement = messages_pb2.StorageNodeAdvertisementRequest()
+    advertisement = protobuf_msgs.StorageNodeAdvertisementRequest()
     advertisement.ParseFromString(msg)
     uid = uuid.UUID(advertisement.node.uid.replace("\n", ""))
     port_get_data: int = advertisement.node.port_get_data
@@ -992,7 +1031,7 @@ for i in range(constants.TOTAL_NUMBER_OF_STORAGE_NODES):
         db.commit()
 
     # Send the response to the storage node
-    resp = messages_pb2.StorageNodeAdvertisementResponse()
+    resp = protobuf_msgs.StorageNodeAdvertisementResponse()
     resp.success = True
     sock_pull_storage_node_advertisement.send(resp.SerializeToString())
 

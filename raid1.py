@@ -10,7 +10,7 @@ from typing import List, Tuple
 
 import zmq
 
-import messages_pb2 as protobuf_msgs
+import protobuf_msgs as protobuf_msgs
 from data_models.storage_id import StorageId
 from storage_providers.storage_provider import StorageProvider
 from utils import random_string, remove_duplicate_from_list

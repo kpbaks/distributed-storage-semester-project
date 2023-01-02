@@ -28,3 +28,16 @@ CREATE TABLE `replicas` (
 	FOREIGN KEY(file_metadata_id) REFERENCES file_metadata(file_metadata_id),
 	FOREIGN KEY(storage_node_id) REFERENCES storage_nodes(storage_node_id)
 );
+
+CREATE TABLE `fragments` (
+   `fragment_id` INTEGER PRIMARY KEY AUTOINCREMENT,
+   `file_metadata_id` INTEGER,
+   `storage_node_id` INTEGER,
+   `uid` TEXT,
+   -- `fragment_index` INTEGER,
+   -- `fragment_size` INTEGER,
+   `created` DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+   FOREIGN KEY(file_metadata_id) REFERENCES file_metadata(file_metadata_id),
+   FOREIGN KEY(storage_node_id) REFERENCES storage_nodes(storage_node_id)
+);

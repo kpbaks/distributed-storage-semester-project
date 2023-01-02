@@ -8,21 +8,21 @@ import pathlib
 from pathlib import Path
 import random
 import shutil
+from pprint import pp
 import string
 import sys
 import time
-
+import reedsolomon
 import zmq
+import copy # for deepcopy
 
-import messages_pb2
+import messages_pb2 as protobuf_msgs
 
 from utils import is_raspberry_pi, random_string, write_file, create_logger, get_interface_ipaddress
 import constants
 
 name_of_this_script = os.path.basename(__file__).split(".")[0]
 
-logger = create_logger(name_of_this_script)
-logger.info(f"log level is {logger.getEffectiveLevel()}")
 
 parser = argparse.ArgumentParser(
     prog=name_of_this_script,
@@ -34,6 +34,11 @@ parser.add_argument(
 )
 
 args = parser.parse_args()
+
+# logger = create_logger(name_of_this_script)
+logger = create_logger(args.data_folder)
+logger.info(f"log level is {logger.getEffectiveLevel()}")
+
 
 # Check if folder exists, else create it
 if not os.path.exists(args.data_folder):
@@ -185,7 +190,7 @@ def receiver_action(subscriber: zmq.Socket, sender: zmq.Socket) -> None:
         return
 
     # Parse the Protobuf message from the first frame
-    task = messages_pb2.StoreDataRequest()
+    task = protobuf_msgs.StoreDataRequest()
     logger.debug(f"task: {task}")
     
     task.ParseFromString(msg[1])
@@ -206,7 +211,7 @@ def subscriber_action(subscriber: zmq.Socket, sender: zmq.Socket) -> None:
     msg = subscriber.recv()
 
     # Parse the Protobuf message from the first frame
-    task = messages_pb2.GetDataRequest()
+    task = protobuf_msgs.GetDataRequest()
     task.ParseFromString(msg)
 
     file_uid = task.file_uid
@@ -251,6 +256,9 @@ def nuke_storage_folder() -> None:
 
 # atexit.register(nuke_storage_folder)
 
+
+IPV4_ADDR: str = get_interface_ipaddress('eth0') if is_raspberry_pi() else 'localhost'
+
 def setup(master_node_addr: str, attempts: int = 10, timeout_between_attempts: int = 1) -> None:
     """
     Send a broadcast message to the master node, and the other storage nodes
@@ -261,11 +269,10 @@ def setup(master_node_addr: str, attempts: int = 10, timeout_between_attempts: i
     sock.connect(f"tcp://{master_node_addr}:{constants.PORT_STORAGE_NODE_ADVERTISEMENT}")
     for i in range(attempts):
         # Create a new message
-        msg = messages_pb2.StorageNodeAdvertisementRequest()
+        msg = protobuf_msgs.StorageNodeAdvertisementRequest()
         msg.node.uid = str(NODE_UID).encode("utf-8")
-        ipv4_addr: str = get_interface_ipaddress('eth0') if is_raspberry_pi() else 'localhost'
-        logger.debug(f"Using IPv4 address: {ipv4_addr}")
-        msg.node.ipv4 = ipv4_addr
+        logger.debug(f"Using IPv4 address: {IPV4_ADDR}")
+        msg.node.ipv4 = IPV4_ADDR
         # Get a random port for the storage node to listen on, that is not in use
         # msg.node.port = PORT_GET_DATA
         msg.node.port_get_data = PORT_GET_DATA
@@ -278,7 +285,7 @@ def setup(master_node_addr: str, attempts: int = 10, timeout_between_attempts: i
 
         # Wait for the master node to acknowledge the message
         response = sock.recv_multipart()
-        storage_node_advertisement_response = messages_pb2.StorageNodeAdvertisementResponse()
+        storage_node_advertisement_response = protobuf_msgs.StorageNodeAdvertisementResponse()
         storage_node_advertisement_response.ParseFromString(response[0])
         if storage_node_advertisement_response.success:
             logger.info(f"Successfully registered with master node: {storage_node_advertisement_response}")
@@ -297,13 +304,13 @@ def get_data_action(sock_rep_get_data: zmq.Socket) -> None:
     logger.info("Received message on sock_rep_get_data socket")
     received = sock_rep_get_data.recv_multipart()
     try:
-        request = messages_pb2.Message.FromString(received[0])
-    except messages_pb2.DecodeError as e:
+        request = protobuf_msgs.Message.FromString(received[0])
+    except protobuf_msgs.DecodeError as e:
         logger.error(f"Failed to parse Message: {e}")
         return
 
     match request.type:
-        case messages_pb2.MsgType.GET_DATA_REQUEST | messages_pb2.MsgType.DELEGATE_GET_DATA_REQUEST:
+        case protobuf_msgs.MsgType.GET_DATA_REQUEST:
             assert request.WhichOneof("payload") in ["get_data_request", "delegate_get_data_request"], f"Message type is GET_DATA_REQUEST, but payload is not a GetDataRequest, but a {request.WhichOneof('payload')}"
             get_data_request = request.get_data_request
             logger.info(f"Received request for file {get_data_request.file_uid}")
@@ -311,9 +318,9 @@ def get_data_action(sock_rep_get_data: zmq.Socket) -> None:
             f: Path = DATA_FOLDER / get_data_request.file_uid
             if not f.exists():
                 logger.error(f"File {get_data_request.file_uid} not found")
-                response = messages_pb2.Message(
-                    type=messages_pb2.MsgType.GET_DATA_RESPONSE,
-                    get_data_response=messages_pb2.GetDataResponse(
+                response = protobuf_msgs.Message(
+                    type=protobuf_msgs.MsgType.GET_DATA_RESPONSE,
+                    get_data_response=protobuf_msgs.GetDataResponse(
                         success=False
                     )
                 )
@@ -322,15 +329,152 @@ def get_data_action(sock_rep_get_data: zmq.Socket) -> None:
                 # Read the file and send it back
                 with open(f"{DATA_FOLDER}/{get_data_request.file_uid}", "rb") as f:
                     logger.info(f"Sending file {get_data_request.file_uid} back")
-                    response = messages_pb2.Message(
-                        type=messages_pb2.MsgType.GET_DATA_RESPONSE,
-                        get_data_response=messages_pb2.GetDataResponse(
+                    response = protobuf_msgs.Message(
+                        type=protobuf_msgs.MsgType.GET_DATA_RESPONSE,
+                        get_data_response=protobuf_msgs.GetDataResponse(
                             success=True,
                             file_data=f.read()
                         )
                     )
                     sock_rep_get_data.send_multipart([response.SerializeToString()])
 
+
+        case protobuf_msgs.MsgType.GET_FRAGMENTS_AND_DECODE_THEM_REQUEST:
+            assert request.WhichOneof("payload") == "get_fragments_and_decode_them_request", f"Message type is GET_FRAGMENTS_AND_DECODE_THEM_REQUEST, but payload is not a GetFragmentsAndDecodeThemRequest, but a {request.WhichOneof('payload')}"
+            get_fragments_and_decode_them_request = request.get_fragments_and_decode_them_request
+            
+            logger.info(f"I AM THE DECODER")
+            l: int = get_fragments_and_decode_them_request.l
+            filesize: int = get_fragments_and_decode_them_request.filesize
+            fragment_uids_to_storage_nodes = get_fragments_and_decode_them_request.fragment_uids_to_storage_nodes
+
+            symbols = []
+
+            # Extract the storage node, that matches this one            
+            fragment_uid_meant_for_this_storage_node: str | None = None
+
+            for fragment_uid, storage_node in fragment_uids_to_storage_nodes.items():
+                logger.debug(f"Checking if {storage_node.uid} is {NODE_UID}")
+                if storage_node.uid == str(NODE_UID):
+                    logger.info(f"Found fragment meant for this storage node: {fragment_uid}")
+                    fragment_uid_meant_for_this_storage_node = fragment_uid
+                    break
+            
+            if fragment_uid_meant_for_this_storage_node is None:
+                logger.error(f"Could not find fragment meant for this storage node")
+                sys.exit(1)
+
+            f = DATA_FOLDER / fragment_uid_meant_for_this_storage_node
+            if not f.exists():
+                logger.error(f"Fragment {fragment_uid_meant_for_this_storage_node} not found")
+                sys.exit(1)
+
+            with open(f, "rb") as f:
+                data = f.read()
+
+            symbols.append({
+                "chunkname": fragment_uid_meant_for_this_storage_node,
+                "data": bytearray(data)
+            })
+
+            import itertools
+            # itertools.takewhile
+           
+            # Get the fragments from the storage nodes
+            fragment_uids_to_storage_nodes_filtered = {
+                k: v
+                for k, v in fragment_uids_to_storage_nodes.items()
+                if k != fragment_uid_meant_for_this_storage_node
+            }
+
+            assert len(fragment_uids_to_storage_nodes_filtered) == len(fragment_uids_to_storage_nodes) - 1, f"fragment_uids_to_storage_nodes_filtered has {len(fragment_uids_to_storage_nodes_filtered)} elements, but fragment_uids_to_storage_nodes has {len(fragment_uids_to_storage_nodes)} elements"
+            logger.info(f"IS L RIGHT {l}")
+            
+
+            # l = 1 -> slice by 0
+            # l = 2 -> slice by 1
+
+            # Remove l elements from the dict
+            fragment_uids_to_storage_nodes_filtered = dict(list(fragment_uids_to_storage_nodes_filtered.items())[l:])
+
+            # assert len(fragment_uids_to_storage_nodes_filtered) == l, f"fragment_uids_to_storage_nodes_filtered has {len(fragment_uids_to_storage_nodes_filtered)} elements, but l is {l}"
+
+
+            for fragment_uid, storage_node in fragment_uids_to_storage_nodes_filtered.items():
+                # if storage_node.uid == str(NODE_UID):
+                #     logger.info("CONTINUE")
+                #     continue
+
+                logger.info(f"Getting fragment {fragment_uid} from storage node {storage_node}")
+                # Create a socket to connect to the storage node
+
+                sock = context.socket(zmq.REQ)
+                sock.connect(f"tcp://{storage_node.ipv4}:{storage_node.port_get_data}")
+                # Send the request
+                msg = protobuf_msgs.Message(
+                    type=protobuf_msgs.MsgType.GET_DATA_REQUEST,
+                    get_data_request=protobuf_msgs.GetDataRequest(
+                        file_uid=fragment_uid
+                    )
+                )
+                sock.send_multipart([msg.SerializeToString()])
+
+                # Wait for the response
+                response = sock.recv_multipart()
+                response_msg = protobuf_msgs.Message.FromString(response[0])
+                assert response_msg.WhichOneof("payload") == "get_data_response", f"Message type is GET_DATA_RESPONSE, but payload is not a GetDataResponse, but a {response_msg.WhichOneof('payload')}"
+                response_get_data = response_msg.get_data_response
+                assert response_get_data.success, f"Failed to get fragment {fragment_uid} from storage node {storage_node}"
+
+                symbol = {
+                    "chunkname": fragment_uid,
+                    "data": bytearray(response_get_data.file_data)
+                }
+                symbols.append(symbol)
+                
+                # Close the socket
+                sock.close()
+
+            logger.info(f"symbols: {symbols}")
+            symbols2 = [{'chunkname': '1cbf4f9b-Oed1-43cf-926b-19b471ceb237', 'data': bytearray (b'|x7f\xff\xea\xa7\x18\xdcB\xed1]\xe8\xe7\xb7\xd8\xa0')}, {'chunkname': '679ed173-fa3d-47ca-b2ad-44a7ac0fbddb', 'data': bytearray (b'~\xfdh.\xaaT\xfb\xad\xa7\xd6XW\x152\xff')}]
+        
+            # Get the fragment locally stored
+
+            # symbols = symbols[1:]
+
+            # assert len(symbols) == 2, f"Length of symbols is {len(symbols)}, but should be 2"
+            
+            # assert len(symbols) == len(fragment_uids_to_storage_nodes) - l, f"Length of symbols is {len(symbols)}, but should be {len(fragment_uids_to_storage_nodes) - l}"
+
+            filedata_return: bytearray = reedsolomon.decode_file(
+                symbols # , l, filesize
+            )[:filesize]
+
+            # import itertools
+
+            # Iterate over all combinations of the symbols
+                
+
+            # for s in itertools.permutations(symbols, len(symbols)):
+            #     assert len(s) == len(symbols), f"Length of s is {len(s)}, but length of symbols is {len(symbols)}"
+            #     filedata_return: bytearray = reedsolomon.decode_file(
+            #         s # , l, filesize
+            #     )[:filesize]
+            #     print(f"PLEASE WORK: {filedata_return}")
+
+            response = protobuf_msgs.Message(
+                type=protobuf_msgs.MsgType.GET_DATA_RESPONSE,
+                get_data_response=protobuf_msgs.GetDataResponse(
+                    success=True,
+                    file_data=bytes(filedata_return)
+                )
+            )
+
+            response_serialized = response.SerializeToString()
+            sock_rep_get_data.send_multipart([response_serialized])
+            logger.info(f"Sent file back to client :-D")
+
+        
         case _:
             logger.error(f"Received unknown message type: {request.type}")
 
@@ -340,14 +484,14 @@ def store_data_action() -> None:
     logger.info("Received message on sock_rep_store_data socket")
     received = sock_rep_store_data.recv_multipart()
     try:
-        request = messages_pb2.Message.FromString(received[0])
-    except messages_pb2.DecodeError as e:
+        request = protobuf_msgs.Message.FromString(received[0])
+    except protobuf_msgs.DecodeError as e:
         logger.error(f"Failed to parse Message: {e}")
         return
     
     match request.type:
         # TASK 1.1
-        case messages_pb2.MsgType.STORE_DATA_REQUEST:
+        case protobuf_msgs.MsgType.STORE_DATA_REQUEST:
             assert request.WhichOneof("payload") == "store_data_request", f"Message type is STORE_DATA_REQUEST, but payload is not a StoreDataRequest, but a {request.WhichOneof('payload')}"
             store_data_request = request.store_data_request
             logger.info(f"Received request to store file {store_data_request.file_uid}")
@@ -365,16 +509,17 @@ def store_data_action() -> None:
                     logger.info(f"Stored file {store_data_request.file_uid}")
                     success = True
 
-            response = messages_pb2.Message(
-                    type=messages_pb2.MsgType.STORE_DATA_RESPONSE,
-                    store_data_response=messages_pb2.StoreDataResponse(
+            response = protobuf_msgs.Message(
+                    type=protobuf_msgs.MsgType.STORE_DATA_RESPONSE,
+                    store_data_response=protobuf_msgs.StoreDataResponse(
                         success=success
                     )
                 )
             sock_rep_store_data.send_multipart([response.SerializeToString()])  
 
         # TASK 1.2
-        case messages_pb2.MsgType.DELEGATE_STORE_DATA_REQUEST:
+        case protobuf_msgs.MsgType.DELEGATE_STORE_DATA_REQUEST:
+
             assert request.WhichOneof("payload") == "delegate_store_data_request", f"Message type is DELEGATE_STORE_DATA_REQUEST, but payload is not a DelegateStoreDataRequest, but a {request.WhichOneof('payload')}"
             delegate_store_data_request = request.delegate_store_data_request
             #logger.info(f"Received request to delegate store file {delegate_store_data_request.file_uid} to node {delegate_store_data_request.node_id}")
@@ -398,9 +543,9 @@ def store_data_action() -> None:
                 # Get the head of the list
                 match nodes_to_forward_to:  
                     case []:
-                        response = messages_pb2.Message(
-                            type=messages_pb2.MsgType.DELEGATE_STORE_DATA_RESPONSE,
-                            delegate_store_data_response=messages_pb2.DelegateStoreDataResponse(
+                        response = protobuf_msgs.Message(
+                            type=protobuf_msgs.MsgType.DELEGATE_STORE_DATA_RESPONSE,
+                            delegate_store_data_response=protobuf_msgs.DelegateStoreDataResponse(
                                 success=success
                             )
                         )
@@ -410,9 +555,9 @@ def store_data_action() -> None:
                         
                     case [head, *tail]:
                         # Create the message to forward
-                        message_to_forward = messages_pb2.Message(
-                            type=messages_pb2.MsgType.DELEGATE_STORE_DATA_REQUEST,
-                            delegate_store_data_request=messages_pb2.DelegateStoreDataRequest(
+                        message_to_forward = protobuf_msgs.Message(
+                            type=protobuf_msgs.MsgType.DELEGATE_STORE_DATA_REQUEST,
+                            delegate_store_data_request=protobuf_msgs.DelegateStoreDataRequest(
                                 file_uid=delegate_store_data_request.file_uid,
                                 file_data=delegate_store_data_request.file_data,
                                 nodes_to_forward_to=tail
@@ -430,22 +575,22 @@ def store_data_action() -> None:
                         logger.info(f"Received response from node {head.uid}")
 
                         try:
-                            response = messages_pb2.Message.FromString(received[0])
-                        except messages_pb2.DecodeError as e:
+                            response = protobuf_msgs.Message.FromString(received[0])
+                        except protobuf_msgs.DecodeError as e:
                             logger.error(f"Failed to parse Message: {e}")
                             sys.exit(1)
                         else:
                             match response.type:
-                                case messages_pb2.MsgType.DELEGATE_STORE_DATA_RESPONSE:
+                                case protobuf_msgs.MsgType.DELEGATE_STORE_DATA_RESPONSE:
                                     assert response.WhichOneof("payload") == "delegate_store_data_response", f"Message type is DELEGATE_STORE_DATA_RESPONSE, but payload is not a DelegateStoreDataResponse, but a {response.WhichOneof('payload')}"
                                     delegate_store_data_response = response.delegate_store_data_response
                                     logger.info(f"Received response to delegate store file {delegate_store_data_request.file_uid} to node {head.uid}")
                                     if delegate_store_data_response.success:
                                         logger.info(f"Successfully delegated store file {delegate_store_data_request.file_uid} to node {head.uid}")
                                         # Send the response to the client
-                                        response = messages_pb2.Message(
-                                            type=messages_pb2.MsgType.DELEGATE_STORE_DATA_RESPONSE,
-                                            delegate_store_data_response=messages_pb2.DelegateStoreDataResponse(
+                                        response = protobuf_msgs.Message(
+                                            type=protobuf_msgs.MsgType.DELEGATE_STORE_DATA_RESPONSE,
+                                            delegate_store_data_response=protobuf_msgs.DelegateStoreDataResponse(
                                                 success=True
                                             )
                                         )
@@ -457,6 +602,109 @@ def store_data_action() -> None:
                                 case _:
                                     logger.error(f"Received unknown message type: {response.type}")
                                     sys.exit(1)            
+        case protobuf_msgs.MsgType.ENCODE_AND_FORWARD_FRAGMENTS_REQUEST:
+
+            # Welcome message
+            logger.info(f"--- Hello. Welcome to my encoding server using Reed-Solomon :)) ---")
+
+            # Parse the message
+            assert request.WhichOneof("payload") == "encode_and_forward_fragments_request", f"Message type is ENCODE_AND_FORWARD_FRAGMENTS_REQUEST, but payload is not a EncodeAndForwardFragmentsRequest, but a {request.WhichOneof('payload')}"
+            encode_and_forward_fragments_request = request.encode_and_forward_fragments_request
+            
+            # Get filename and data
+            data = bytearray(encode_and_forward_fragments_request.file_data)
+
+            # Get the nodes to forward the request to
+            nodes_to_forward_to = encode_and_forward_fragments_request.nodes_to_forward_to
+            assert len(nodes_to_forward_to) == 3, f"Must forward to 3 nodes, but forwarding to {len(nodes_to_forward_to)}"
+            l = encode_and_forward_fragments_request.l
+
+            assert l in [1, 2], f"l must be 1 or 2, but is {l}"
+
+            # Encode the data with reed solomon
+            # fragment_names : list of str (fragment uids)
+            # fragment_data  : list of fragment data bytes
+            fragment_names, fragment_data = reedsolomon.store_file(data, l)
+
+            # Sending the encoded data to the other storage nodes
+            # Create the message to forward
+
+            socks = []
+
+            print(nodes_to_forward_to)
+
+            for f_name, f_data, storage_node in zip(fragment_names[1:], fragment_data[1:], nodes_to_forward_to):
+                assert isinstance(f_name, str), f"Fragment name must be a string, but is {type(f_name)}"
+                assert isinstance(f_data, bytes), f"Fragment data must be bytes, but is {type(f_data)}"
+                assert isinstance(storage_node, protobuf_msgs.StorageNode), f"Storage node must be a StorageNode, but is {type(storage_node)}"
+                message = protobuf_msgs.Message(
+                    type=protobuf_msgs.MsgType.STORE_DATA_REQUEST,
+                    store_data_request=protobuf_msgs.StoreDataRequest(
+                        file_uid=f_name,
+                        file_data=f_data
+                    )
+                )
+
+                # Serialize the message
+                message_serialized = message.SerializeToString()
+
+                # Send the message to the storage node
+                sock = context.socket(zmq.REQ)
+                sock.connect(f"tcp://{storage_node.ipv4}:{storage_node.port_store_data}")
+                sock.send_multipart([message_serialized])
+                logger.info(f"Forwarded request to store file {f_name} to node {storage_node.uid}, waiting for response...")
+                socks.append(sock)
+
+            # Store the fragment for this storage node locally, while awaiting the response from the other nodes
+            f = DATA_FOLDER / fragment_names[0]
+            if f.exists():
+                logger.error(f"File {f} already exists")
+                sys.exit(1)
+            else:
+                f.write_bytes(fragment_data[0])
+                logger.info(f"Successfully stored file {f}")
+            
+            # Make sure the other nodes have stored the data successfully
+            for i, sock in enumerate(socks):
+                # Receive the response
+                received = sock.recv_multipart()
+                response = protobuf_msgs.Message.FromString(received[0])
+                assert response.WhichOneof("payload") == "store_data_response", f"Message type is STORE_DATA_RESPONSE, but payload is not a StoreDataResponse, but a {response.WhichOneof('payload')}"
+                store_data_response = response.store_data_response
+                if store_data_response.success:
+                    logger.info(f"Successfully stored file [{i+1}/3]")
+                else:
+                    logger.error(f"Failed to store file [{i+1}/3]")
+                    sys.exit(1)
+        
+                sock.close()
+            
+            # Send the response to the rest-server
+            response = protobuf_msgs.Message(
+                type=protobuf_msgs.MsgType.ENCODE_AND_FORWARD_FRAGMENTS_RESPONSE,
+                encode_and_forward_fragments_response=protobuf_msgs.EncodeAndForwardFragmentsResponse(
+                    fragment_uids_to_storage_nodes = {
+                        uid: storage_node
+                        for uid, storage_node in zip(
+                            fragment_names,
+                            [protobuf_msgs.StorageNode(
+                                uid=str(NODE_UID).encode('utf-8'),
+                                ipv4=IPV4_ADDR,
+                                port_store_data=PORT_STORE_DATA,
+                                port_get_data=PORT_GET_DATA
+
+                            ) ,*nodes_to_forward_to]
+                        )
+                    }
+                )
+            )
+
+            response_serialized = response.SerializeToString()
+
+            sock_rep_store_data.send_multipart([response_serialized])
+
+            logger.info("Sent response to rest-server")
+
 
         case _:
             logger.error(f"Received unknown message type: {request.type}")

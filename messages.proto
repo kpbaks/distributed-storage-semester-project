@@ -34,7 +34,6 @@ message StorageNodeAdvertisementResponse
 	bool success = 1;
 }
 
-
 message GetDataRequest
 {
 	string file_uid = 1; // The UUID of the file to be retrieved
@@ -64,6 +63,26 @@ message DelegateStoreDataRequest
 	repeated StorageNode nodes_to_forward_to = 3; // The list of nodes to forward the request to
 }
 
+message EncodeAndForwardFragmentsRequest
+{
+	string file_uid = 1; // The UUID of the file to be stored
+	bytes file_data = 2; // The file data
+	repeated StorageNode nodes_to_forward_to = 3; // The list of nodes to forward the request to
+	uint32 l = 4; // The number of fragments to encode
+}
+
+message EncodeAndForwardFragmentsResponse
+{
+	map<string, StorageNode> fragment_uids_to_storage_nodes = 1;
+}
+
+message GetFragmentsAndDecodeThemRequest
+{
+	uint32 l = 1; // The number of fragments to encode
+	uint64 filesize = 2; // The size of the file
+	map<string, StorageNode> fragment_uids_to_storage_nodes = 3;
+}
+
 message DelegateStoreDataResponse
 {
 	bool success = 1; // true if the file was successfully stored
@@ -79,6 +98,9 @@ enum MsgType
 	DELEGATE_STORE_DATA_RESPONSE = 5;
 	STORAGE_NODE_ADVERTISEMENT_REQUEST = 6;
 	STORAGE_NODE_ADVERTISEMENT_RESPONSE = 7;
+	ENCODE_AND_FORWARD_FRAGMENTS_REQUEST = 8;
+	ENCODE_AND_FORWARD_FRAGMENTS_RESPONSE = 9;
+	GET_FRAGMENTS_AND_DECODE_THEM_REQUEST = 10;
 }
 
 message Message
@@ -94,6 +116,9 @@ message Message
 		DelegateStoreDataResponse delegate_store_data_response = 7;
 		StorageNodeAdvertisementRequest storage_node_advertisement_request = 8;
 		StorageNodeAdvertisementResponse storage_node_advertisement_response = 9;
+		EncodeAndForwardFragmentsRequest encode_and_forward_fragments_request = 10;
+		EncodeAndForwardFragmentsResponse encode_and_forward_fragments_response = 11;
+		GetFragmentsAndDecodeThemRequest get_fragments_and_decode_them_request = 12;
 	}
 }
 

@@ -3,7 +3,7 @@ import math
 import random
 import copy # for deepcopy
 from utils import random_string
-import messages_pb2
+import messages_pb2 as protobuf_msgs
 import json
 import uuid
 from typing import List, Tuple
@@ -48,7 +48,7 @@ RS_CAUCHY_COEFFS = [
     bytearray([127, 255, 126, 253])
 ]
 
-def store_file(file_data, max_erasures, send_task_socket, response_socket) -> Tuple[List[str], List[bytearray]]:
+def store_file(file_data, max_erasures) -> Tuple[List[str], List[bytearray]]:
     """
     Store a file using Reed Solomon erasure coding, protecting it against 'max_erasures' 
     unavailable storage nodes. 
@@ -89,10 +89,9 @@ def store_file(file_data, max_erasures, send_task_socket, response_socket) -> Tu
         # Generate a random name for it and save
         # name = random_string(8)
         fragment = coefficients[:symbols] + bytearray(symbol)
-        logger.info(f"fragment: {fragment}")
         uid = uuid.uuid4()
         
-        fragment_names.append(uid)
+        fragment_names.append(str(uid))
         fragment_data.append(fragment)
 
     return fragment_names, [bytes(fragment) for fragment in fragment_data]
@@ -141,7 +140,7 @@ def replicate(file_data, max_erasures, k, send_task_socket, response_socket):
             fragment_names.append(name)
             
             # Send a Protobuf STORE DATA request to the Storage Nodes
-            task = messages_pb2.storedata_request()
+            task = protobuf_msgs.storedata_request()
             task.filename = name
 
             send_task_socket.send_multipart([
@@ -155,7 +154,6 @@ def replicate(file_data, max_erasures, k, send_task_socket, response_socket):
             print('Received: %s' % resp)
 
     return fragment_names
-#
 
 
 def decode_file(symbols: List[bytes]) -> bytes:
@@ -193,7 +191,6 @@ def decode_file(symbols: List[bytes]) -> bytes:
     return data_out
 
 
-
 def get_file(coded_fragments: List[str], max_erasures: int, file_size: int,
              data_req_socket: zmq.Socket, response_socket: zmq.Socket) -> bytes:
     """
@@ -217,9 +214,6 @@ def get_file(coded_fragments: List[str], max_erasures: int, file_size: int,
     assert max_erasures >= 0, f"max_erasures must be >= 0, not {max_erasures}"
     assert max_erasures < STORAGE_NODES_NUM, f"max_erasures must be < {STORAGE_NODES_NUM}, not {max_erasures}"
 
-    
-
-
     # We need 4-max_erasures fragments to reconstruct the file, select this many 
     # by randomly removing 'max_erasures' elements from the given chunk names. 
     name_of_fragments = copy.deepcopy(coded_fragments)
@@ -229,8 +223,8 @@ def get_file(coded_fragments: List[str], max_erasures: int, file_size: int,
     # Request the coded fragments in parallel
     for name in name_of_fragments:
         logger.debug(f"Fragment name: {name}")
-        task = messages_pb2.GetDataRequest()
-        task.file_uuid = str(name)
+        task = protobuf_msgs.GetDataRequest()
+        task.file_uid = str(name)
         data_req_socket.send(
             task.SerializeToString()
         )
@@ -238,7 +232,6 @@ def get_file(coded_fragments: List[str], max_erasures: int, file_size: int,
     # Receive all chunks and insert them into the symbols array
     symbols = []
     for i in range(len(name_of_fragments)):
-        logger.info(f"i: {i}")
         result = response_socket.recv_multipart()
         # In this case we don't care about the received name, just use the 
         # data from the second frame
@@ -248,11 +241,12 @@ def get_file(coded_fragments: List[str], max_erasures: int, file_size: int,
         })
     print("All coded fragments received successfully")
 
+    logger.info(f"Symbols: {symbols}")
+
     #Reconstruct the original file data
     file_data = decode_file(symbols)
 
     return file_data[:file_size]
-#
 
 
 def get_file_for_repair(fragments_to_retrieve, file_size,
@@ -271,10 +265,10 @@ def get_file_for_repair(fragments_to_retrieve, file_size,
     
     # Request the coded fragments in parallel.
     for name in fragments_to_retrieve:
-        task = messages_pb2.getdata_request()
+        task = protobuf_msgs.getdata_request()
         task.filename = name
-        header = messages_pb2.header()
-        header.request_type = messages_pb2.FRAGMENT_DATA_REQ
+        header = protobuf_msgs.header()
+        header.request_type = protobuf_msgs.FRAGMENT_DATA_REQ
         repair_socket.send_multipart([b"all_nodes",
                                       header.SerializeToString(),
                                       task.SerializeToString()])
@@ -295,7 +289,6 @@ def get_file_for_repair(fragments_to_retrieve, file_size,
     file_data = decode_file(symbols)
 
     return file_data[:file_size]# Reconstruct the original data with a decoder
-#
 
 
 def start_repair_process(files, repair_socket, repair_response_socket):
@@ -330,10 +323,10 @@ def start_repair_process(files, repair_socket, repair_response_socket):
         missing_fragments = [] # list of missing coded fragments
         existing_fragments = [] # list of existing coded fragments
         for fragment in coded_fragments:
-            task = messages_pb2.fragment_status_request()
+            task = protobuf_msgs.fragment_status_request()
             task.fragment_name = fragment
-            header = messages_pb2.header()
-            header.request_type = messages_pb2.FRAGMENT_STATUS_REQ
+            header = protobuf_msgs.header()
+            header.request_type = protobuf_msgs.FRAGMENT_STATUS_REQ
 
             repair_socket.send_multipart([b"all_nodes",
                                           header.SerializeToString(),
@@ -343,7 +336,7 @@ def start_repair_process(files, repair_socket, repair_response_socket):
             # Wait until we receive a response from each node
             for task_nbr in range(STORAGE_NODES_NUM):
                 msg = repair_response_socket.recv()
-                response = messages_pb2.fragment_status_response()
+                response = protobuf_msgs.fragment_status_response()
                 response.ParseFromString(msg)
                 
                 nodes.add(response.node_id) #Build a set of nodes
@@ -362,7 +355,6 @@ def start_repair_process(files, repair_socket, repair_response_socket):
         # If we have lost fragments, we must figure out where they were stored
         # We assume that each node has exactly 1 or 0 fragments
         nodes_without_fragment = list(nodes.difference(nodes_with_fragment))
-
 
         # Perform the actual repair, if necessary
         if len(missing_fragments) > 0:
@@ -401,11 +393,11 @@ def start_repair_process(files, repair_socket, repair_response_socket):
 
                 # Save with the same name as before
                 # Send a Protobuf STORE DATA request to the Storage Nodes
-                task = messages_pb2.storedata_request()
+                task = protobuf_msgs.storedata_request()
                 task.filename = missing_fragment
 
-                header = messages_pb2.header()
-                header.request_type = messages_pb2.STORE_FRAGMENT_DATA_REQ
+                header = protobuf_msgs.header()
+                header.request_type = protobuf_msgs.STORE_FRAGMENT_DATA_REQ
 
                 node_id = nodes_without_fragment[number_of_repaired_fragments]
 
