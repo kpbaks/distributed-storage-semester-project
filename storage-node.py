@@ -305,8 +305,8 @@ def get_data_action(sock_rep_get_data: zmq.Socket) -> None:
         return
 
     match request.type:
-        case messages_pb2.MsgType.GET_DATA_REQUEST:
-            assert request.WhichOneof("payload") == "get_data_request", f"Message type is GET_DATA_REQUEST, but payload is not a GetDataRequest, but a {request.WhichOneof('payload')}"
+        case messages_pb2.MsgType.GET_DATA_REQUEST | messages_pb2.MsgType.DELEGATE_GET_DATA_REQUEST:
+            assert request.WhichOneof("payload") in ["get_data_request", "delegate_get_data_request"], f"Message type is GET_DATA_REQUEST, but payload is not a GetDataRequest, but a {request.WhichOneof('payload')}"
             get_data_request = request.get_data_request
             logger.info(f"Received request for file {get_data_request.file_uid}")
             # check if the file exists
@@ -348,6 +348,7 @@ def store_data_action() -> None:
         return
     
     match request.type:
+        # TASK 1.1
         case messages_pb2.MsgType.STORE_DATA_REQUEST:
             assert request.WhichOneof("payload") == "store_data_request", f"Message type is STORE_DATA_REQUEST, but payload is not a StoreDataRequest, but a {request.WhichOneof('payload')}"
             store_data_request = request.store_data_request
@@ -374,42 +375,94 @@ def store_data_action() -> None:
                 )
             sock_rep_store_data.send_multipart([response.SerializeToString()])  
 
+        # TASK 1.2
+        case messages_pb2.MsgType.DELEGATE_STORE_DATA_REQUEST:
+            assert request.WhichOneof("payload") == "delegate_store_data_request", f"Message type is DELEGATE_STORE_DATA_REQUEST, but payload is not a DelegateStoreDataRequest, but a {request.WhichOneof('payload')}"
+            delegate_store_data_request = request.delegate_store_data_request
+            logger.info(f"Received request to delegate store file {delegate_store_data_request.file_uid} to node {delegate_store_data_request.node_id}")
+
+            f = DATA_FOLDER / delegate_store_data_request.file_uid
+            success: bool = False
+            if f.exists():
+                logger.error(f"File {delegate_store_data_request.file_uid} already exists")
+                success = False
+                sys.exit(1)
+            
+            else:
+                # Write the file
+                with open(f"{DATA_FOLDER}/{delegate_store_data_request.file_uid}", "wb") as f:
+                    f.write(delegate_store_data_request.file_data)
+                    logger.info(f"Stored file {delegate_store_data_request.file_uid}")
+                    success = True
+
+                # Get the nodes to forward the request to
+                nodes_to_forward_to = delegate_store_data_request.nodes_to_forward_to
+                # Get the head of the list
+                match nodes_to_forward_to:  
+                    case []:
+                        response = messages_pb2.Message(
+                            type=messages_pb2.MsgType.DELEGATE_STORE_DATA_RESPONSE,
+                            delegate_store_data_response=messages_pb2.DelegateStoreDataResponse(
+                                success=success
+                            )
+                        )
+                        response_serialized = response.SerializeToString()
+                        sock_rep_store_data.send_multipart([response_serialized])
+                        logger.info(f"Last node in the list, sending response back to client")
+                        
+                    case [head, *tail]:
+                        # Create the message to forward
+                        message_to_forward = messages_pb2.Message(
+                            type=messages_pb2.MsgType.DELEGATE_STORE_DATA_REQUEST,
+                            delegate_store_data_request=messages_pb2.DelegateStoreDataRequest(
+                                file_uid=delegate_store_data_request.file_uid,
+                                file_data=delegate_store_data_request.file_data,
+                                nodes_to_forward_to=tail
+                            )
+                        )
+                        message_to_forward_serialized = message_to_forward.SerializeToString()
+                        # Send the message to the head of the list
+                        sock = context.socket(zmq.REQ)
+                        sock.connect(f"tcp://{head.ip}:{head.port_store_data}")
+                        sock.send_multipart([message_to_forward_serialized])
+                        logger.info(f"Forwarded request to delegate store file {delegate_store_data_request.file_uid} to node {head.node_id}, waiting for response...")
+
+                        # Receive the response
+                        received = sock.recv_multipart()
+                        logger.info(f"Received response from node {head.node_id}")
+
+                        try:
+                            response = messages_pb2.Message.FromString(received[0])
+                        except messages_pb2.DecodeError as e:
+                            logger.error(f"Failed to parse Message: {e}")
+                            sys.exit(1)
+                        else:
+                            match response.type:
+                                case messages_pb2.MsgType.DELEGATE_STORE_DATA_RESPONSE:
+                                    assert response.WhichOneof("payload") == "delegate_store_data_response", f"Message type is DELEGATE_STORE_DATA_RESPONSE, but payload is not a DelegateStoreDataResponse, but a {response.WhichOneof('payload')}"
+                                    delegate_store_data_response = response.delegate_store_data_response
+                                    logger.info(f"Received response to delegate store file {delegate_store_data_request.file_uid} to node {delegate_store_data_request.node_id}")
+                                    if delegate_store_data_response.success:
+                                        logger.info(f"Successfully delegated store file {delegate_store_data_request.file_uid} to node {delegate_store_data_request.node_id}")
+                                        # Send the response to the client
+                                        response = messages_pb2.Message(
+                                            type=messages_pb2.MsgType.DELEGATE_STORE_DATA_RESPONSE,
+                                            delegate_store_data_response=messages_pb2.DelegateStoreDataResponse(
+                                                success=True
+                                            )
+                                        )
+                                        response_serialized = response.SerializeToString()
+                                        sock_rep_store_data.send_multipart([response_serialized])
+                                    else:
+                                        logger.error(f"Failed to delegate store file {delegate_store_data_request.file_uid} to node {delegate_store_data_request.node_id}")
+                                        sys.exit(1)
+                                case _:
+                                    logger.error(f"Received unknown message type: {response.type}")
+                                    sys.exit(1)            
+
         case _:
             logger.error(f"Received unknown message type: {request.type}")
-
-
-
-    # get_data_request = messages_pb2.GetDataRequest()
-    # try:
-    #     get_data_request.ParseFromString(received[0])
-    # except messages_pb2.DecodeError as e:
-    #     logger.error(f"Failed to parse GetDataRequest: {e}")
-    #     get_data_response = messages_pb2.GetDataResponse()
-    #     get_data_response.success = False
-    #     get_data_response_serialized = get_data_response.SerializeToString()
-    #     sock_rep_get_data.send_multipart([get_data_response_serialized])
-    #     continue
-    # else:
-    #     logger.info(f"Received request for file {get_data_request.file_uid}")
-    #     # check if the file exists
-    #     f: Path = DATA_FOLDER / get_data_request.file_uid
-    #     if not f.exists():
-    #         logger.error(f"File {get_data_request.file_uid} not found")
-    #         get_data_response = messages_pb2.GetDataResponse()
-    #         get_data_response.success = False
-    #         get_data_response_serialized = get_data_response.SerializeToString()
-    #         sock_rep_get_data.send_multipart([get_data_response_serialized])
-            
-    #     else:
-    #         # Read the file and send it back
-    #         with open(f"{DATA_FOLDER}/{get_data_request.file_uid}", "rb") as f:
-    #             logger.info(f"Sending file {get_data_request.file_uid} back")
-    #             get_data_response = messages_pb2.GetDataResponse()
-    #             get_data_response.success = True
-    #             get_data_response.file_data = f.read()
-    #             get_data_response_serialized = get_data_response.SerializeToString()
-    #             sock_rep_get_data.send_multipart([get_data_response_serialized])
-
+            sys.exit(1)
 
 def main_loop() -> None:
     

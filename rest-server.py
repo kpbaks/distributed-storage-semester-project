@@ -627,12 +627,6 @@ def add_files_task1_1() -> Response:
         )
         msg_serialized = msg.SerializeToString()
 
-        # request = messages_pb2.StoreDataRequest()
-        # request.file_uid = str(file_uid)
-        # request.file_data = file_data
-
-        # serialized_request = request.SerializeToString()
-
         sock = context.socket(zmq.REQ)
         sock.connect(f"tcp://{node.address}:{node.port_store_data}")
         sock.send_multipart([msg_serialized])
@@ -647,10 +641,9 @@ def add_files_task1_1() -> Response:
         resp = client.recv_multipart() # await response
         resp_serialized = messages_pb2.Message.FromString(resp[0])
         logger.debug(f"Received response: {resp_serialized}")
+        client.close()
 
-    # for _ in range(k):
-    #     resp = response_socket.recv_string()
-    #     logger.info(f"Received: {resp}")    
+
     
     db = get_db()
     cursor = db.execute(
@@ -737,23 +730,9 @@ def add_files_task1_2() -> Response:
 
     msg_serialized = msg.SerializeToString()
 
-    # delegate_store_data_request = messages_pb2.DelegateStoreDataRequest()
-    # delegate_store_data_request.file_uid = str(file_uid).encode("UTF-8")
-    # delegate_store_data_request.file_data = file_data
-
-    # delegate_store_data_request.nodes_to_forward_to = [
-    #     messages_pb2.StorageNode(
-    #         uid=node.uid.encode("UTF-8"),
-    #         ipv4 = node.ipv4.encode("UTF-8"),
-    #         port=node.port,
-    #     ) for node in rest_nodes
-    # ]
-
-    # serialized_request = delegate_store_data_request.SerializeToString()
-
     # Create a REQ socket to send the request to the first node
     sock = context.socket(zmq.REQ)
-    sock.connect(f"tcp://{first_node.ipv4}:{first_node.port}")
+    sock.connect(f"tcp://{first_node.ipv4}:{first_node.port_store_data}")
     sock.send_multipart([msg_serialized])
 
     # Wait for the response
