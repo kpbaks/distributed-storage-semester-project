@@ -574,7 +574,7 @@ def store_data_action() -> None:
                         logger.error(f"Received unknown message type: {response.type}")
                         sys.exit(1)    
 
-    elif request.type == protobuf_msgs.MsgType.RETRIEVE_DATA_REQUEST:
+    elif request.type == protobuf_msgs.MsgType.ENCODE_AND_FORWARD_FRAGMENTS_REQUEST:
         # case protobuf_msgs.MsgType.ENCODE_AND_FORWARD_FRAGMENTS_REQUEST:
 
         # Welcome message
