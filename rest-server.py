@@ -692,14 +692,18 @@ def add_files_task1_2() -> Response:
     sock = context.socket(zmq.REQ)
     sock.connect(f"tcp://{first_node.address}:{first_node.port_store_data}")
 
-    t_lead_end: float = time.time()
+    # t_lead_end: float = time.time()
+
+    t_send_start: float = time.time()
 
     sock.send_multipart([msg_serialized])
 
     # Wait for the response
     received = sock.recv_multipart()
+    
+    t_send_end: float = time.time()
 
-    t_insert_into_db_start: float = time.time()
+    # t_insert_into_db_start: float = time.time()
 
     try:
         response = protobuf_msgs.Message.FromString(received[0])
@@ -772,7 +776,7 @@ def add_files_task1_2() -> Response:
             "id": cursor.lastrowid,
             "time": t_diff,
             "time_replication": time_replication,
-            "time_lead_total_work": (t_lead_end - t_start) + (t_insert_into_db_end - t_insert_into_db_start),
+            "time_lead_total_work": t_diff - (t_send_start - t_send_end),
         }, 201)
     finally:
         sock.close()
