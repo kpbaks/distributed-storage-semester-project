@@ -12,7 +12,7 @@ from typing import Optional
 
 import messages_pb2 as protobuf_msgs
 
-from utils import is_raspberry_pi, random_string, write_file, create_logger, get_interface_ipaddress
+from utils import is_raspberry_pi, create_logger, get_interface_ipaddress
 import constants
 
 name_of_this_script = os.path.basename(__file__).split(".")[0]
@@ -25,6 +25,10 @@ parser = argparse.ArgumentParser(
 
 parser.add_argument(
     "data_folder", type=str, help="Folder where chunks should be stored"
+)
+
+parser.add_argument(
+    'master_ip_addr', type=str, help="IP address of the master node"
 )
 
 args = parser.parse_args()
@@ -711,6 +715,7 @@ def main_loop() -> None:
     
 
 if __name__ == '__main__':
-    setup("127.0.0.1")
+    setup(args.master_ip_addr)
+    # setup("127.0.0.1")
     logger.info("Starting main loop")
     main_loop()
