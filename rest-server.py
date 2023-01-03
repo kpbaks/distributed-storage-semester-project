@@ -260,6 +260,10 @@ def download_file_task1_1(file_id: int) -> Response:
 
     return make_response({"message": "Error downloading file"}, 500)
 
+@app.route("/files/<int:file_id>/task1.2", methods=["GET"])
+def download_file_task1_2(file_id: int) -> Response:
+    return redirect(f"/files/{file_id}/task1.1", code=307)
+
 
 @app.route("/files/<int:file_id>/task2.1", methods=["GET"])
 def download_file_task2_1(file_id: int) -> Response:
