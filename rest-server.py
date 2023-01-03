@@ -763,20 +763,22 @@ def add_files_task1_2() -> Response:
         db.commit()
         logger.info(f"Inserted file with id {file_id} into database")
 
-        t_insert_into_db_end: float = time.time()
+        # t_insert_into_db_end: float = time.time()
 
         t_end: float = time.time()
-        logger.debug(f"Time to store file: {t_end - t_start}")
+        # logger.debug(f"Time to store file: {t_end - t_start}")
         t_diff: float = t_end - t_start
 
         time_replication: float = response.delegate_store_data_response.time_replication
-        print(f"Time replication: {time_replication}")
+        # print(f"Time replication: {time_replication}")
+
+        print(f"time={t_diff}, time_replication={time_replication}, time_lead_total_work={t_diff - (t_send_end - t_send_start)}")
 
         return make_response({
             "id": cursor.lastrowid,
             "time": t_diff,
             "time_replication": time_replication,
-            "time_lead_total_work": t_diff - (t_send_start - t_send_end),
+            "time_lead_total_work": t_diff - (t_send_end - t_send_start),
         }, 201)
     finally:
         sock.close()
