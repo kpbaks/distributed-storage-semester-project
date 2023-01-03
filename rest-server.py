@@ -274,6 +274,8 @@ def download_file_task2_1(file_id: int) -> Response:
     """
     logger.info(f"Received request to download file {file_id} using Task 2.1")
 
+    l: int = args.max_erasures
+
     # Get the file metadata from the database
     file_metadata = get_file_metadata_from_db(file_id)
     if not file_metadata:
@@ -286,7 +288,7 @@ def download_file_task2_1(file_id: int) -> Response:
     # Get cursor to get the storage nodes that have the file
     cursor = db.execute(
         """
-        SELECT f.uid AS fragment_uid
+        SELECT sn.*, f.uid AS fragment_uid
         FROM `storage_nodes` AS sn
         JOIN `fragments` AS f
             ON f.file_metadata_id = ?
@@ -301,19 +303,71 @@ def download_file_task2_1(file_id: int) -> Response:
         return make_response({"message": error_msg}, 500)
 
     # Get the storage nodes that have the file
-    fragment_uids = cursor.fetchall()
-    fragment_names = [fragment_uid[0] for fragment_uid in fragment_uids]
+    rows = cursor.fetchall()
+    rows_as_dict = [dict(row) for row in rows]
 
-    l: int = args.max_erasures  # Should probably be stored in the database
+    # A list of dictionaries, each dictionary containing the `chunkname` and the `data` 
+    symbols = []
 
+    for i, row in enumerate(rows_as_dict):
+        fragment_uid: str = row["fragment_uid"]
+        storage_node_uid: str = row["uid"]
+        ipv4_address: str = row["address"]
+        port_get_data: int = row["port_get_data"]
+        friendly_name: str = row["friendly_name"]
+
+        # Create a client socket to send the request to the Storage Nodes
+        sock = context.socket(zmq.REQ)
+        endpoint: str = f"tcp://{ipv4_address}:{port_get_data}"
+        sock.connect(endpoint)
+
+        # Send the request to the Storage Node
+        request = protobuf_msgs.Message(
+            type=protobuf_msgs.MsgType.GET_DATA_REQUEST,
+            get_data_request=protobuf_msgs.GetDataRequest(
+                file_uid=fragment_uid),
+        )
+        request_serialized = request.SerializeToString()
+        sock.send_multipart([request_serialized])
+
+        # Wait for the response from the Storage Node
+        response: List[bytes] = sock.recv_multipart()
+        try:
+            msg = protobuf_msgs.Message.FromString(response[0])
+        except protobuf_msgs.DecodeError as e:
+            logger.error(f"Error decoding response from Storage Node {friendly_name}")
+            return make_response({"message": "Error decoding response"}, 500)
+        else:
+            if msg.type != protobuf_msgs.MsgType.GET_DATA_RESPONSE:
+                logger.error(
+                    f"Received invalid response from Storage Node {friendly_name}"
+                )
+                return make_response({"message": "Invalid response"}, 500)
+
+            if msg.get_data_response.success:
+                file_data: bytes = msg.get_data_response.file_data
+                symbols.append({
+                    "chunkname": fragment_uid,
+                    "data": bytearray(file_data)
+                })
+                logger.info(f"Received replica {fragment_uid} from Storage Node {friendly_name} [{i+1}/{len(rows_as_dict)}]")
+                if len(symbols) == constants.TOTAL_NUMBER_OF_STORAGE_NODES - l:
+                    logger.info(f"Found enough fragments to reconstruct the file")
+                    break
+            else:
+                logger.error(
+                    f"Error receiving replica {fragment_uid} from Storage Node {friendly_name}"
+                )
+                return make_response({"message": "Error receiving replica"}, 500)
+
+        sock.close()
+
+    # Reconstruct the file
     filesize = file_metadata['size']
+    
+    filedata_reconstructed: bytes = reedsolomon.decode_file(symbols)[:filesize]
 
-    filedata_return = reedsolomon.get_file(
-        fragment_names, l, filesize, data_req_socket, response_socket
-    )
-
-
-    return send_file(io.BytesIO(filedata_return), mimetype=file_metadata["content_type"])
+    return send_file(io.BytesIO(filedata_reconstructed), mimetype=file_metadata["content_type"])
 
 
 @app.route("/files/<int:file_id>/task2.2", methods=["GET"])
@@ -355,8 +409,6 @@ def download_file_task2_2(file_id: int) -> Response:
 
     l: int = args.max_erasures  # Should probably be stored in the database
     filesize = file_metadata['size']
-
-    pp(rows_as_dict)
 
     msg = protobuf_msgs.Message(
         type=protobuf_msgs.MsgType.GET_FRAGMENTS_AND_DECODE_THEM_REQUEST,
@@ -448,7 +500,6 @@ def extract_fields_from_post_request(request: Request) -> tuple[str, str, bytes,
     Extracts the filename, content type and file data from the request.
     """
 
-    # TODO: make it able to handle json
     payload = request.form
 
     # Check if request is a form or a json
@@ -469,6 +520,7 @@ def extract_fields_from_post_request(request: Request) -> tuple[str, str, bytes,
 
 def time_to_wait(filesize: int) -> int:
     """
+    NOTE: NOT USED!
     Calculates the time to wait for a file to be stored in one node,
     assuming that the network can take 10 mbps, and the filesize is in bytes.
     """
@@ -907,30 +959,6 @@ def add_files() -> Response:
             return make_response("Wrong storage mode", 400)
 
 
-# @app.route("/services/rs_repair", methods=["GET"])
-# def rs_repair() -> Response:
-#     # Retrieve the list of files stored using Reed-Solomon from the database
-#     db = get_db()
-#     cursor = db.execute(
-#         "SELECT `id`, `storage_details`, `size` FROM `file` WHERE `storage_mode`='reedsolomon'"
-#     )
-#     if not cursor:
-#         return make_response({"message": "Error connecting to the database"}, 500)
-
-#     rs_files = cursor.fetchall()
-#     rs_files = [dict(file) for file in rs_files]
-
-#     fragments_missing, fragments_repaired = reedsolomon.start_repair_process(
-#         rs_files, repair_socket, repair_response_socket
-#     )
-
-#     return make_response(
-#         {
-#             "fragments_missing": fragments_missing,
-#             "fragments_repaired": fragments_repaired,
-#         }
-#     )
-
 
 @app.errorhandler(500)
 def server_error(e) -> Response:
@@ -938,53 +966,8 @@ def server_error(e) -> Response:
     return make_response({"error": str(e)}, 500)
 
 
-def task_send_heartbeat_request() -> None:
-    logger.info("Sending heartbeat request to storage nodes ...")
-    # sock_dealer_request_heartbeat.send_string("heartbeat")
 
-    storage_nodes_online: Set[uuid.UUID] = {}
-    return
-
-    # # We have 4 nodes in total
-    num_timeout_reached = 0
-    for i in range(constants.TOTAL_NUMBER_OF_STORAGE_NODES):
-        # pass
-        try:
-            reply = sock_dealer_request_heartbeat.recv()
-        except zmq.ZmqError:
-            # If the timeout of 1000 ms is reached we deem the node as being offline
-            num_timeout_reached += 1
-            logger.warn(f"Timeout reached [{num_timeout_reached}]")
-        else:
-            # Expect reply to be of type HeartBeatResponse
-            resp = protobuf_msgs.HeartBeatResponse()
-            resp.ParseFromString(reply)
-            uid = uuid.UUID(bytes=resp.uid)
-            storage_nodes_online = storage_nodes_online & uid
-
-    # Figure out which storage nodes have not replied
-    logger.info("Sending heartbeat request to storage nodes ... DONE")
-
-
-scheduler = BackgroundScheduler()
-
-interval: int = 10  # seconds
-
-scheduler.add_job(
-    func=task_send_heartbeat_request,
-    trigger=IntervalTrigger(seconds=interval),
-    id="heartbeat-request",
-    name=f"A job that runs every {interval} seconds",
-    replace_existing=True,
-)
-
-atexit.register(scheduler.shutdown)
-
-# app.before_first_request(scheduler.start)
-# app.before_first_request(
-#     lambda: logger.error("TODO: figure out which storage nodes are online.")
-# )
-
+# -- SETUP -- #
 sock_pull_storage_node_advertisement = context.socket(zmq.REP)
 sock_pull_storage_node_advertisement.bind(
     f"tcp://*:{constants.PORT_STORAGE_NODE_ADVERTISEMENT}"

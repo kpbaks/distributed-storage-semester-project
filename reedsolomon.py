@@ -156,7 +156,7 @@ def replicate(file_data, max_erasures, k, send_task_socket, response_socket):
     return fragment_names
 
 
-def decode_file(symbols: List[bytes]) -> bytes:
+def decode_file(symbols: List[any]) -> bytes:
     """
     Decode a file using Reed Solomon decoder and the provided coded symbols.
     The number of symbols must be the same as STORAGE_NODES_NUM - max_erasures.

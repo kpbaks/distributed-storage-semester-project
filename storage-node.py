@@ -339,11 +339,13 @@ def get_data_action(sock_rep_get_data: zmq.Socket) -> None:
                     sock_rep_get_data.send_multipart([response.SerializeToString()])
 
 
+        # TASK 2.2
         case protobuf_msgs.MsgType.GET_FRAGMENTS_AND_DECODE_THEM_REQUEST:
             assert request.WhichOneof("payload") == "get_fragments_and_decode_them_request", f"Message type is GET_FRAGMENTS_AND_DECODE_THEM_REQUEST, but payload is not a GetFragmentsAndDecodeThemRequest, but a {request.WhichOneof('payload')}"
             get_fragments_and_decode_them_request = request.get_fragments_and_decode_them_request
             
-            logger.info(f"I AM THE DECODER")
+            logger.info(f"This node was selected to be in charge of encoding the file with Reed-Solomon and forward fragments to the 3 other nodes in the storage system.")
+
             l: int = get_fragments_and_decode_them_request.l
             filesize: int = get_fragments_and_decode_them_request.filesize
             fragment_uids_to_storage_nodes = get_fragments_and_decode_them_request.fragment_uids_to_storage_nodes
@@ -377,9 +379,6 @@ def get_data_action(sock_rep_get_data: zmq.Socket) -> None:
                 "data": bytearray(data)
             })
 
-            import itertools
-            # itertools.takewhile
-           
             # Get the fragments from the storage nodes
             fragment_uids_to_storage_nodes_filtered = {
                 k: v
@@ -388,26 +387,13 @@ def get_data_action(sock_rep_get_data: zmq.Socket) -> None:
             }
 
             assert len(fragment_uids_to_storage_nodes_filtered) == len(fragment_uids_to_storage_nodes) - 1, f"fragment_uids_to_storage_nodes_filtered has {len(fragment_uids_to_storage_nodes_filtered)} elements, but fragment_uids_to_storage_nodes has {len(fragment_uids_to_storage_nodes)} elements"
-            logger.info(f"IS L RIGHT {l}")
             
-
-            # l = 1 -> slice by 0
-            # l = 2 -> slice by 1
-
             # Remove l elements from the dict
             fragment_uids_to_storage_nodes_filtered = dict(list(fragment_uids_to_storage_nodes_filtered.items())[l:])
 
-            # assert len(fragment_uids_to_storage_nodes_filtered) == l, f"fragment_uids_to_storage_nodes_filtered has {len(fragment_uids_to_storage_nodes_filtered)} elements, but l is {l}"
-
-
             for fragment_uid, storage_node in fragment_uids_to_storage_nodes_filtered.items():
-                # if storage_node.uid == str(NODE_UID):
-                #     logger.info("CONTINUE")
-                #     continue
-
                 logger.info(f"Getting fragment {fragment_uid} from storage node {storage_node}")
                 # Create a socket to connect to the storage node
-
                 sock = context.socket(zmq.REQ)
                 sock.connect(f"tcp://{storage_node.ipv4}:{storage_node.port_get_data}")
                 # Send the request
@@ -435,33 +421,13 @@ def get_data_action(sock_rep_get_data: zmq.Socket) -> None:
                 # Close the socket
                 sock.close()
 
-            logger.info(f"symbols: {symbols}")
-            symbols2 = [{'chunkname': '1cbf4f9b-Oed1-43cf-926b-19b471ceb237', 'data': bytearray (b'|x7f\xff\xea\xa7\x18\xdcB\xed1]\xe8\xe7\xb7\xd8\xa0')}, {'chunkname': '679ed173-fa3d-47ca-b2ad-44a7ac0fbddb', 'data': bytearray (b'~\xfdh.\xaaT\xfb\xad\xa7\xd6XW\x152\xff')}]
         
-            # Get the fragment locally stored
-
-            # symbols = symbols[1:]
-
-            # assert len(symbols) == 2, f"Length of symbols is {len(symbols)}, but should be 2"
-            
-            # assert len(symbols) == len(fragment_uids_to_storage_nodes) - l, f"Length of symbols is {len(symbols)}, but should be {len(fragment_uids_to_storage_nodes) - l}"
-
             filedata_return: bytearray = reedsolomon.decode_file(
-                symbols # , l, filesize
+                symbols 
             )[:filesize]
 
-            # import itertools
 
-            # Iterate over all combinations of the symbols
-                
-
-            # for s in itertools.permutations(symbols, len(symbols)):
-            #     assert len(s) == len(symbols), f"Length of s is {len(s)}, but length of symbols is {len(symbols)}"
-            #     filedata_return: bytearray = reedsolomon.decode_file(
-            #         s # , l, filesize
-            #     )[:filesize]
-            #     print(f"PLEASE WORK: {filedata_return}")
-
+            # Create the final response to the rest-client
             response = protobuf_msgs.Message(
                 type=protobuf_msgs.MsgType.GET_DATA_RESPONSE,
                 get_data_response=protobuf_msgs.GetDataResponse(
@@ -473,7 +439,6 @@ def get_data_action(sock_rep_get_data: zmq.Socket) -> None:
             response_serialized = response.SerializeToString()
             sock_rep_get_data.send_multipart([response_serialized])
             logger.info(f"Sent file back to client :-D")
-
         
         case _:
             logger.error(f"Received unknown message type: {request.type}")
@@ -601,7 +566,8 @@ def store_data_action() -> None:
                                         sys.exit(1)
                                 case _:
                                     logger.error(f"Received unknown message type: {response.type}")
-                                    sys.exit(1)            
+                                    sys.exit(1)    
+
         case protobuf_msgs.MsgType.ENCODE_AND_FORWARD_FRAGMENTS_REQUEST:
 
             # Welcome message
