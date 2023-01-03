@@ -121,19 +121,13 @@ def create_logger(name: str | None = None, level: int = logging.INFO) -> logging
 
 
 def get_log_level_name_from_effective_level(level: int) -> str:
-    match level:
-        case logging.DEBUG:
-            return "DEBUG"
-        case logging.INFO:
-            return "INFO"
-        case logging.WARNING:
-            return "WARNING"
-        case logging.ERROR:
-            return "ERROR"
-        case logging.CRITICAL:
-            return "CRITICAL"
-        case _:
-            return "UNKNOWN"
+    return {
+        logging.DEBUG: "DEBUG",
+        logging.INFO: "INFO",
+        logging.WARNING: "WARNING",
+        logging.ERROR: "ERROR",
+        logging.CRITICAL: "CRITICAL",
+    }[level] or "UNKNOWN"
 
 
 def get_interface_ipaddress(network: str) -> str:

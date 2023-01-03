@@ -470,16 +470,26 @@ def download_file(file_id: int) -> Response:
         f"Received request to download file {file_id}. Storage mode is {args.mode}"
     )
 
-    match args.mode:
-        case "task1.1" | "task1.2":
-            return redirect(f"/files/{file_id}/task1.1", code=307)
-            # The logic for Task 1.2 is the same as Task 1.1
-        case "task2.1":
-            return redirect(f"/files/{file_id}/task2.1", code=307)
-        case "task2.2":
-            return redirect(f"/files/{file_id}/task2.2", code=307)
-        case _:
-            return make_response({"message": "Invalid mode"}, 400)
+    if args.mode == "task1.1" or args.mode == "task1.2":
+        return redirect(f"/files/{file_id}/task1.1", code=307)
+    elif args.mode == "task2.1":
+        return redirect(f"/files/{file_id}/task2.1", code=307)
+    elif args.mode == "task2.2":
+        return redirect(f"/files/{file_id}/task2.2", code=307)
+    else:
+        return make_response({"message": "Invalid mode"}, 400)
+
+
+    # match args.mode:
+    #     case "task1.1" | "task1.2":
+    #         return redirect(f"/files/{file_id}/task1.1", code=307)
+    #         # The logic for Task 1.2 is the same as Task 1.1
+    #     case "task2.1":
+    #         return redirect(f"/files/{file_id}/task2.1", code=307)
+    #     case "task2.2":
+    #         return redirect(f"/files/{file_id}/task2.2", code=307)
+    #     case _:
+    #         return make_response({"message": "Invalid mode"}, 400)
 
 
 def get_storage_nodes_from_db() -> list[StorageNode]:
@@ -946,17 +956,28 @@ def add_files() -> Response:
     """
 
     logger.info(f"mode: {args.mode}")
-    match args.mode:
-        case "task1.1":
-            return redirect("/files_task1.1", code=307)
-        case "task1.2":
-            return redirect("/files_task1.2", code=307)
-        case "task2.1":
-            return redirect("/files_task2.1", code=307)
-        case "task2.2":
-            return redirect("/files_task2.2", code=307)
-        case _:
-            return make_response("Wrong storage mode", 400)
+    if args.mode == "task1.1":
+        return redirect("/files_task1.1", code=307)
+    elif args.mode == "task1.2":
+        return redirect("/files_task1.2", code=307)
+    elif args.mode == "task2.1":
+        return redirect("/files_task2.1", code=307)
+    elif args.mode == "task2.2":
+        return redirect("/files_task2.2", code=307)
+    else:
+        return make_response("Wrong storage mode", 400)
+
+    # match args.mode:
+    #     case "task1.1":
+    #         return redirect("/files_task1.1", code=307)
+    #     case "task1.2":
+    #         return redirect("/files_task1.2", code=307)
+    #     case "task2.1":
+    #         return redirect("/files_task2.1", code=307)
+    #     case "task2.2":
+    #         return redirect("/files_task2.2", code=307)
+    #     case _:
+    #         return make_response("Wrong storage mode", 400)
 
 
 
