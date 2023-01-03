@@ -5,7 +5,6 @@ import os
 import random
 import sys
 import uuid
-from pprint import pp
 from typing import List, Tuple
 
 import zmq

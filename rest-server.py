@@ -13,7 +13,6 @@ import sys
 import time  # For waiting a second for ZMQ connections
 import uuid
 from hashlib import sha256
-from pprint import pp
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import zmq  # For ZMQ
@@ -599,7 +598,6 @@ def add_files_task1_1() -> Response:
     file_id: int = cursor.lastrowid
 
     for node in chosen_storage_nodes:
-        pp(node)
         logger.debug(f"File ID: {file_id}, Node ID: {node.uid}")
 
         db.execute(
