@@ -492,16 +492,16 @@ def store_data_action() -> None:
         delegate_store_data_request = request.delegate_store_data_request
         #logger.info(f"Received request to delegate store file {delegate_store_data_request.file_uid} to node {delegate_store_data_request.node_id}")
 
+        if delegate_store_data_request.you_are_the_first_node:
+            t_replication_start: float = time.time()
+
         f = DATA_FOLDER / delegate_store_data_request.file_uid
         success: bool = False
         if f.exists():
             logger.error(f"File {delegate_store_data_request.file_uid} already exists")
             success = False
             sys.exit(1)
-        
         else:
-            t_replication_start: float = time.time()
-
             # Write the file
             with open(f"{DATA_FOLDER}/{delegate_store_data_request.file_uid}", "wb") as f:
                 f.write(delegate_store_data_request.file_data)
@@ -512,7 +512,6 @@ def store_data_action() -> None:
             nodes_to_forward_to = delegate_store_data_request.nodes_to_forward_to
             # Get the head of the list
 
-            
             if len(nodes_to_forward_to) == 0:
                 response = protobuf_msgs.Message(
                     type=protobuf_msgs.MsgType.DELEGATE_STORE_DATA_RESPONSE,
@@ -531,9 +530,7 @@ def store_data_action() -> None:
 
                 # first_node_contacted: bool = len(nodes_to_forward_to) == constants.TOTAL_NUMBER_OF_STORAGE_NODES
 
-                if delegate_store_data_request.you_are_the_first_node:
-                    t_replication_start: float = time.time()
-
+                
                 # Create the message to forward
                 message_to_forward = protobuf_msgs.Message(
                     type=protobuf_msgs.MsgType.DELEGATE_STORE_DATA_REQUEST,
@@ -570,7 +567,11 @@ def store_data_action() -> None:
                             # Send the response to the client
 
                             if delegate_store_data_request.you_are_the_first_node:
+                                # print(f"Replication-: {t_replication_start}")
+
+                                print(f"time_replication = {time.time()} - {t_replication_start} = {time.time() - t_replication_start}")
                                 time_replication = time.time() - t_replication_start
+
                             else:
                                 # If not the first node contacted, then the time_replication is not defined, and we set it to -1
                                 time_replication = -1

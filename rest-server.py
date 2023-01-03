@@ -833,6 +833,7 @@ def add_files_task2_1() -> Response:
     assert len(storage_nodes) == constants.TOTAL_NUMBER_OF_STORAGE_NODES, f"Expected {constants.TOTAL_NUMBER_OF_STORAGE_NODES} storage nodes, got {len(storage_nodes)}"
 
 
+    t_send_start: float = time.time()
     # Send file to chosen_storage_nodes
     for node, fragment, name in zip(storage_nodes ,fragment_data, fragment_names):
         client: zmq.Socket = send_file_to_node(node,fragment_data=fragment, fragment_name=name)
@@ -841,6 +842,8 @@ def add_files_task2_1() -> Response:
         resp_serialized = protobuf_msgs.Message.FromString(resp[0])
         logger.debug(f"Received response: {resp_serialized}")
         client.close()
+
+    t_send_end: float = time.time()
 
 
     db = get_db()
@@ -888,7 +891,20 @@ def add_files_task2_1() -> Response:
     logger.debug(f"Time to store file: {t_end - t_start}")
     t_diff: float = t_end - t_start
 
-    return make_response({"id": file_id, "time": t_diff, "time_rs_encode": t_diff_rs}, 201)
+    t_diff_send: float = t_send_end - t_send_start
+
+    time_redundancy: float = t_diff_rs + t_diff_send
+
+    time_lead_total_work: float = t_diff - t_diff_send
+
+    return make_response({
+        "id": file_id, 
+        "time": t_diff,
+        "time_rs_encode": t_diff_rs,
+        "time_send": t_diff_send,
+        "time_redundancy": time_redundancy,
+        "time_lead_total_work": time_lead_total_work,
+    }, 201)
 
 
 @app.route("/files_task2.2", methods=["POST"])
