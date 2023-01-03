@@ -772,7 +772,7 @@ def add_files_task1_2() -> Response:
         time_replication: float = response.delegate_store_data_response.time_replication
         # print(f"Time replication: {time_replication}")
 
-        print(f"time={t_diff}, time_replication={time_replication}, time_lead_total_work={t_diff - (t_send_end - t_send_start)}")
+        # print(f"time={t_diff}, time_replication={time_replication}, time_lead_total_work={t_diff - (t_send_end - t_send_start)}")
 
         return make_response({
             "id": cursor.lastrowid,

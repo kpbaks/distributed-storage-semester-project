@@ -5,7 +5,11 @@ pwd
 
 N=${1:-10}
 
+TOTAL_REQUESTS=$((N*2*4))
+
 k=${2:-2}
+
+printf "REQUEST per test=%d, TOTAL_REQUESTS=%d, k=%d\n" ${N} ${TOTAL_REQUESTS} ${k}
 
 if ! [ -d ./log ]; then
     echo "Creating log directory"
@@ -18,7 +22,7 @@ for f in 10kB 100kB 1MB 10MB; do
         printf "${t}\n"
         logfile="log/${t}_post_${k}_${f}.txt"
         echo "time,time_replication,time_lead_total_work" > "${logfile}"
-        for i in $(seq 1 $N); do
+        for i in $(seq 1 ${TOTAL_REQUESTS}); do
         # -r '[.filename, .content_type ] | @csv'
             http 192.168.0.101:9000/files_${t} -F < test_data/POST-request-${f}.json | jq -r '[.time, .time_replication, .time_lead_total_work] | @csv' >> log/${t}_post_${k}_${f}.txt
             printf "${i}/${N}\r"

@@ -570,7 +570,7 @@ def store_data_action() -> None:
                             if delegate_store_data_request.you_are_the_first_node:
                                 # print(f"Replication-: {t_replication_start}")
 
-                                print(f"time_replication = {time.time()} - {t_replication_start} = {time.time() - t_replication_start}")
+                                # print(f"time_replication = {time.time()} - {t_replication_start} = {time.time() - t_replication_start}")
                                 time_replication = time.time() - t_replication_start
 
                             else:
