@@ -8,7 +8,7 @@ import random
 import sqlite3
 import time  # For waiting a second for ZMQ connections
 import uuid
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import zmq  # For ZMQ
 # from apscheduler import Task
@@ -499,7 +499,7 @@ def get_storage_nodes_from_db() -> List[StorageNode]:
     return [StorageNode(**dict(row)) for row in cursor.fetchall()]
 
 
-def extract_fields_from_post_request(request: Request) -> tuple[str, str, bytes, int]:
+def extract_fields_from_post_request(request: Request) -> Tuple[str, str, bytes, int]:
     """
     Extracts the filename, content type and file data from the request.
     """
