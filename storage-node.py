@@ -597,8 +597,11 @@ def store_data_action() -> None:
         # Encode the data with reed solomon
         # fragment_names : list of str (fragment uids)
         # fragment_data  : list of fragment data bytes
+        t_start_rs: float = time.time()
         fragment_names, fragment_data = reedsolomon.store_file(data, l)
-
+        t_end_rs: float = time.time()
+        t_diff_rs: float = t_end_rs - t_start_rs
+        logger.debug(f"Encoding time: {t_diff_rs} seconds")
         # Sending the encoded data to the other storage nodes
         # Create the message to forward
 
@@ -607,9 +610,9 @@ def store_data_action() -> None:
         # print(nodes_to_forward_to)
 
         for f_name, f_data, storage_node in zip(fragment_names[1:], fragment_data[1:], nodes_to_forward_to):
-            assert isinstance(f_name, str), f"Fragment name must be a string, but is {type(f_name)}"
-            assert isinstance(f_data, bytes), f"Fragment data must be bytes, but is {type(f_data)}"
-            assert isinstance(storage_node, protobuf_msgs.StorageNode), f"Storage node must be a StorageNode, but is {type(storage_node)}"
+            # assert isinstance(f_name, str), f"Fragment name must be a string, but is {type(f_name)}"
+            # assert isinstance(f_data, bytes), f"Fragment data must be bytes, but is {type(f_data)}"
+            # assert isinstance(storage_node, protobuf_msgs.StorageNode), f"Storage node must be a StorageNode, but is {type(storage_node)}"
             message = protobuf_msgs.Message(
                 type=protobuf_msgs.MsgType.STORE_DATA_REQUEST,
                 store_data_request=protobuf_msgs.StoreDataRequest(
@@ -652,6 +655,7 @@ def store_data_action() -> None:
     
             sock.close()
         
+        
         # Send the response to the rest-server
         response = protobuf_msgs.Message(
             type=protobuf_msgs.MsgType.ENCODE_AND_FORWARD_FRAGMENTS_RESPONSE,
@@ -668,7 +672,8 @@ def store_data_action() -> None:
 
                         ) ,*nodes_to_forward_to]
                     )
-                }
+                },
+                time_rs_encode=t_diff_rs
             )
         )
 

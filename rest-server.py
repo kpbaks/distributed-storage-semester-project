@@ -363,7 +363,21 @@ def download_file_task2_1(file_id: int) -> Response:
     # Reconstruct the file
     filesize = file_metadata['size']
     
+    t_start_rs: float = time.time()
     filedata_reconstructed: bytes = reedsolomon.decode_file(symbols)[:filesize]
+    t_end_rs: float = time.time()
+    t_diff_rs: float = t_end_rs - t_start_rs
+    logger.debug(f"Reed-Solomon decoding took {t_diff_rs} seconds")
+
+    # Write time_rs_decode to log file
+    with open("time_rs_decode.txt", "a") as f:
+        f.write(f"task2.1 {t_diff_rs}\n")
+
+    # return make_response({
+    #     "filedata": base64.b64encode(filedata_reconstructed).decode("utf-8"),
+    #     "content_type": file_metadata["content_type"],
+    #     "time_rs_decode": t_diff_rs
+    # })
 
     return send_file(io.BytesIO(filedata_reconstructed), mimetype=file_metadata["content_type"])
 
@@ -539,6 +553,8 @@ def time_to_wait(filesize: int) -> int:
 @app.route("/files_task1.1", methods=["POST"])
 def add_files_task1_1() -> Response:
 
+    t_start: float = time.time()
+
     filename, content_type, file_data, filesize = extract_fields_from_post_request(
         request
     )
@@ -616,7 +632,11 @@ def add_files_task1_1() -> Response:
 
     db.commit()
 
-    return make_response({"id": file_id}, 201)
+    t_end: float = time.time()
+    logger.debug(f"Time to store file: {t_end - t_start}")
+    t_diff: float = t_end - t_start
+
+    return make_response({"id": file_id, "time": t_diff}, 201)
 
 
 @app.route("/files_task1.2", methods=["POST"])
@@ -624,6 +644,9 @@ def add_files_task1_2() -> Response:
     """
     Add a new file to the storage system.
     """
+
+    t_start: float = time.time()
+
     filename, content_type, file_data, filesize = extract_fields_from_post_request(
         request
     )
@@ -722,7 +745,12 @@ def add_files_task1_2() -> Response:
 
         db.commit()
         logger.info(f"Inserted file with id {file_id} into database")
-        return make_response({"id": cursor.lastrowid}, 201)
+
+        t_end: float = time.time()
+        logger.debug(f"Time to store file: {t_end - t_start}")
+        t_diff: float = t_end - t_start
+
+        return make_response({"id": cursor.lastrowid, "time": t_diff}, 201)
     finally:
         sock.close()
 
@@ -732,17 +760,24 @@ def add_files_task2_1() -> Response:
     """
     Add a new file to the storage system.
     """
+
+    t_start: float = time.time()
+
     filename, content_type, file_data, filesize = extract_fields_from_post_request(
         request
     )
 
     l: int = args.max_erasures
     data = bytearray(file_data) # Kodo expects a bytearray
-
+    
+    t_start_rs: float = time.time()
     # Encode the data with REED-SOLOMON
     fragment_names, fragment_data = reedsolomon.store_file(
         data, l
     )
+    t_end_rs: float = time.time()
+    t_diff_rs: float = t_end_rs - t_start_rs
+    logger.debug(f"Time to encode file with RS: {t_diff_rs}")
 
     file_uid = uuid.uuid4()
 
@@ -820,11 +855,17 @@ def add_files_task2_1() -> Response:
 
     db.commit()
 
-    return make_response({"id": file_id}, 201)
+    t_end: float = time.time()
+    logger.debug(f"Time to store file: {t_end - t_start}")
+    t_diff: float = t_end - t_start
+
+    return make_response({"id": file_id, "time": t_diff, "time_rs_encode": t_diff_rs}, 201)
 
 
 @app.route("/files_task2.2", methods=["POST"])
 def add_files_task2_2() -> Response:
+
+    t_start: float = time.time()
 
     filename, content_type, file_data, filesize = extract_fields_from_post_request(
         request
@@ -890,6 +931,8 @@ def add_files_task2_2() -> Response:
             .encode_and_forward_fragments_response \
             .fragment_uids_to_storage_nodes
 
+        t_diff_rs: float = response.encode_and_forward_fragments_response.time_rs_encode
+
         db = get_db()
         cursor = db.execute(
             """
@@ -940,7 +983,12 @@ def add_files_task2_2() -> Response:
 
         db.commit()
         logger.info(f"Inserted file with id {file_id} into database")
-        return make_response({"id": cursor.lastrowid}, 201)
+
+        t_end: float = time.time()
+        t_diff: float = t_end - t_start
+        logger.debug(f"Time to store file: {t_diff}")
+
+        return make_response({"id": cursor.lastrowid, "time": t_diff, "time_rs_encode": t_diff_rs}, 201)
     finally:
         sock.close()
 

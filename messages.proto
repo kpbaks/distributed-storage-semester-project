@@ -74,6 +74,7 @@ message EncodeAndForwardFragmentsRequest
 message EncodeAndForwardFragmentsResponse
 {
 	map<string, StorageNode> fragment_uids_to_storage_nodes = 1;
+	double time_rs_encode = 2;
 }
 
 message GetFragmentsAndDecodeThemRequest
