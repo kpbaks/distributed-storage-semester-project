@@ -470,11 +470,7 @@ def store_data_action() -> None:
             success = False
 
         else:
-            # Write the file
-            with open(f"{DATA_FOLDER}/{store_data_request.file_uid}", "wb") as f:
-                f.write(store_data_request.file_data)
-                logger.info(f"Stored file {store_data_request.file_uid}")
-                success = True
+            success = True
 
         response = protobuf_msgs.Message(
                 type=protobuf_msgs.MsgType.STORE_DATA_RESPONSE,
@@ -482,7 +478,12 @@ def store_data_action() -> None:
                     success=success
                 )
             )
-        sock_rep_store_data.send_multipart([response.SerializeToString()])  
+        sock_rep_store_data.send_multipart([response.SerializeToString()])
+        # Write the file
+        with open(f"{DATA_FOLDER}/{store_data_request.file_uid}", "wb") as f:
+            f.write(store_data_request.file_data)
+            logger.info(f"Stored file {store_data_request.file_uid}")
+
 
         # TASK 1.2
     elif request.type == protobuf_msgs.MsgType.DELEGATE_STORE_DATA_REQUEST:
@@ -594,10 +595,9 @@ def store_data_action() -> None:
 
     # TASK 2.2
     elif request.type == protobuf_msgs.MsgType.ENCODE_AND_FORWARD_FRAGMENTS_REQUEST:
-        # case protobuf_msgs.MsgType.ENCODE_AND_FORWARD_FRAGMENTS_REQUEST:
 
         # Welcome message
-        logger.info(f"--- Hello. Welcome to my encoding server using Reed-Solomon :)) ---")
+        logger.info(f"--- I HAVE BEEN CHOSEN TO ENCODE AND FORWARD THE DATA FRAGMENTS ---")
 
         # Parse the message
         assert request.WhichOneof("payload") == "encode_and_forward_fragments_request", f"Message type is ENCODE_AND_FORWARD_FRAGMENTS_REQUEST, but payload is not a EncodeAndForwardFragmentsRequest, but a {request.WhichOneof('payload')}"
@@ -617,9 +617,10 @@ def store_data_action() -> None:
         # fragment_names : list of str (fragment uids)
         # fragment_data  : list of fragment data bytes
         t_start_rs: float = time.time()
-        fragment_names, fragment_data = reedsolomon.store_file(data, l)
+        fragment_names, fragment_data = reedsolomon.encode_file(data, l)
         t_end_rs: float = time.time()
         t_diff_rs: float = t_end_rs - t_start_rs
+        
         logger.debug(f"Encoding time: {t_diff_rs} seconds")
         # Sending the encoded data to the other storage nodes
         # Create the message to forward

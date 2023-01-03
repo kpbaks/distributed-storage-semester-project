@@ -801,7 +801,7 @@ def add_files_task2_1() -> Response:
     
     t_start_rs: float = time.time()
     # Encode the data with REED-SOLOMON
-    fragment_names, fragment_data = reedsolomon.store_file(
+    fragment_names, fragment_data = reedsolomon.encode_file(
         data, l
     )
     t_end_rs: float = time.time()
@@ -834,6 +834,7 @@ def add_files_task2_1() -> Response:
 
 
     t_send_start: float = time.time()
+
     # Send file to chosen_storage_nodes
     for node, fragment, name in zip(storage_nodes ,fragment_data, fragment_names):
         client: zmq.Socket = send_file_to_node(node,fragment_data=fragment, fragment_name=name)
@@ -842,6 +843,8 @@ def add_files_task2_1() -> Response:
         resp_serialized = protobuf_msgs.Message.FromString(resp[0])
         logger.debug(f"Received response: {resp_serialized}")
         client.close()
+
+    
 
     t_send_end: float = time.time()
 
@@ -944,20 +947,20 @@ def add_files_task2_2() -> Response:
         ),
     )
 
-    logger.debug(f" {msg}")
-
     msg_serialized = msg.SerializeToString()
-
 
     # Create a REQ socket to send the request to the first node
     sock = context.socket(zmq.REQ)
     sock.connect(f"tcp://{node_that_does_the_encoding.address}:{node_that_does_the_encoding.port_store_data}")
-    sock.send_multipart([msg_serialized])
 
-    file_uid = uuid.uuid4()
+    t_send_start: float = time.time()
+
+    sock.send_multipart([msg_serialized])
 
     # Wait for the response
     received = sock.recv_multipart()
+
+    t_send_end: float = time.time()
 
     try:
         response = protobuf_msgs.Message.FromString(received[0])
@@ -1031,9 +1034,22 @@ def add_files_task2_2() -> Response:
 
         t_end: float = time.time()
         t_diff: float = t_end - t_start
+
         logger.debug(f"Time to store file: {t_diff}")
 
-        return make_response({"id": cursor.lastrowid, "time": t_diff, "time_rs_encode": t_diff_rs}, 201)
+        t_diff_send = t_send_end - t_send_start
+        time_lead_total_work: float = t_diff - t_diff_send # t_diff_send already includes t_diff_rs
+
+
+        return make_response({
+            "id": file_id,
+            "time": t_diff, 
+            "time_rs_encode": t_diff_rs,
+            "time_send": t_diff_send,
+            "time_lead_total_work": time_lead_total_work,
+            "time_redundancy": t_diff_send # t_diff_send already includes t_diff_rs
+        }, 201)
+
     finally:
         sock.close()
 

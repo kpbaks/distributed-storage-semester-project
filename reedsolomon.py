@@ -48,7 +48,7 @@ RS_CAUCHY_COEFFS = [
     bytearray([127, 255, 126, 253])
 ]
 
-def store_file(file_data, max_erasures) -> Tuple[List[str], List[bytearray]]:
+def encode_file(file_data, max_erasures) -> Tuple[List[str], List[bytearray]]:
     """
     Store a file using Reed Solomon erasure coding, protecting it against 'max_erasures' 
     unavailable storage nodes. 
@@ -57,8 +57,6 @@ def store_file(file_data, max_erasures) -> Tuple[List[str], List[bytearray]]:
 
     :param file_data: The file contents to be stored as a Python bytearray 
     :param max_erasures: How many storage node failures should the data survive
-    :param send_task_socket: A ZMQ PUSH socket to the storage nodes
-    :param response_socket: A ZMQ PULL socket where the storage nodes respond
     :return: A list of the coded fragment names, e.g. (c1,c2,c3,c4)
     """
 

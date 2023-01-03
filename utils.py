@@ -99,7 +99,7 @@ def elements_in_list_are_unique(lst: List[Any]) -> bool:
     return len(lst) == len(set(lst))
 
 
-def create_logger(name: Optional[str] = None, level: int = logging.WARN) -> logging.Logger:
+def create_logger(name: Optional[str] = None, level: int = logging.INFO) -> logging.Logger:
     """
     Returns a logger with the given name and log level.
     """
