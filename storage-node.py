@@ -525,19 +525,20 @@ def store_data_action() -> None:
                 response_serialized = response.SerializeToString()
                 sock_rep_store_data.send_multipart([response_serialized])
                 logger.info(f"Last node in the list, sending response back to client")
-                
+
             else:
                 head, *tail = nodes_to_forward_to
 
-                first_node_contacted: bool = len(nodes_to_forward_to) == constants.TOTAL_NUMBER_OF_STORAGE_NODES
+                # first_node_contacted: bool = len(nodes_to_forward_to) == constants.TOTAL_NUMBER_OF_STORAGE_NODES
 
-                if first_node_contacted:
+                if delegate_store_data_request.you_are_the_first_node:
                     t_replication_start: float = time.time()
 
                 # Create the message to forward
                 message_to_forward = protobuf_msgs.Message(
                     type=protobuf_msgs.MsgType.DELEGATE_STORE_DATA_REQUEST,
                     delegate_store_data_request=protobuf_msgs.DelegateStoreDataRequest(
+                        you_are_the_first_node=False,
                         file_uid=delegate_store_data_request.file_uid,
                         file_data=delegate_store_data_request.file_data,
                         nodes_to_forward_to=tail
@@ -568,7 +569,7 @@ def store_data_action() -> None:
                             logger.info(f"Successfully delegated store file {delegate_store_data_request.file_uid} to node {head.uid}")
                             # Send the response to the client
 
-                            if first_node_contacted:
+                            if delegate_store_data_request.you_are_the_first_node:
                                 time_replication = time.time() - t_replication_start
                             else:
                                 # If not the first node contacted, then the time_replication is not defined, and we set it to -1

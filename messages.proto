@@ -61,6 +61,7 @@ message DelegateStoreDataRequest
 	string file_uid = 1; // The UUID of the file to be stored
 	bytes file_data = 2; // The file data
 	repeated StorageNode nodes_to_forward_to = 3; // The list of nodes to forward the request to
+	bool you_are_the_first_node = 4; // true if this node is the first node to receive the request
 }
 
 message EncodeAndForwardFragmentsRequest

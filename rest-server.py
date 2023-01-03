@@ -672,6 +672,7 @@ def add_files_task1_2() -> Response:
     msg = protobuf_msgs.Message(
         type=protobuf_msgs.MsgType.DELEGATE_STORE_DATA_REQUEST,
         delegate_store_data_request=protobuf_msgs.DelegateStoreDataRequest(
+            you_are_the_first_node=True,
             file_uid=str(file_uid).encode("UTF-8"),
             file_data=file_data,
             nodes_to_forward_to=[
