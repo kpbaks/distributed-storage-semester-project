@@ -486,7 +486,7 @@ def download_file(file_id: int) -> Response:
     #         return make_response({"message": "Invalid mode"}, 400)
 
 
-def get_storage_nodes_from_db() -> list[StorageNode]:
+def get_storage_nodes_from_db() -> List[StorageNode]:
     """
     Returns a list of storage nodes from the database.
     """
