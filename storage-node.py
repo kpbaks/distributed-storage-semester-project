@@ -500,6 +500,8 @@ def store_data_action() -> None:
             sys.exit(1)
         
         else:
+            t_replication_start: float = time.time()
+
             # Write the file
             with open(f"{DATA_FOLDER}/{delegate_store_data_request.file_uid}", "wb") as f:
                 f.write(delegate_store_data_request.file_data)
@@ -514,10 +516,13 @@ def store_data_action() -> None:
             if len(nodes_to_forward_to) == 0:
             # match nodes_to_forward_to:  
                 # case []:
+                t_replication_end: float = time.time()
+                t_replication: float = t_replication_end - t_replication_start
                 response = protobuf_msgs.Message(
                     type=protobuf_msgs.MsgType.DELEGATE_STORE_DATA_RESPONSE,
                     delegate_store_data_response=protobuf_msgs.DelegateStoreDataResponse(
-                        success=success
+                        success=success,
+                        time_replication=t_replication
                     )
                 )
                 response_serialized = response.SerializeToString()
@@ -574,6 +579,7 @@ def store_data_action() -> None:
                         logger.error(f"Received unknown message type: {response.type}")
                         sys.exit(1)    
 
+    # TASK 2.2
     elif request.type == protobuf_msgs.MsgType.ENCODE_AND_FORWARD_FRAGMENTS_REQUEST:
         # case protobuf_msgs.MsgType.ENCODE_AND_FORWARD_FRAGMENTS_REQUEST:
 

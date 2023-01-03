@@ -582,6 +582,9 @@ def add_files_task1_1() -> Response:
 
         return sock
 
+
+    t_start_replication: float = time.time()
+
     # Send file to chosen_storage_nodes
     for node in chosen_storage_nodes:
         client: zmq.Socket = send_file_to_node(node)
@@ -590,6 +593,9 @@ def add_files_task1_1() -> Response:
         resp_serialized = protobuf_msgs.Message.FromString(resp[0])
         logger.debug(f"Received response: {resp_serialized}")
         client.close()
+
+    t_end_replication: float = time.time()
+    t_diff_replication: float = t_end_replication - t_start_replication
 
     db = get_db()
     cursor = db.execute(
@@ -636,7 +642,7 @@ def add_files_task1_1() -> Response:
     logger.debug(f"Time to store file: {t_end - t_start}")
     t_diff: float = t_end - t_start
 
-    return make_response({"id": file_id, "time": t_diff}, 201)
+    return make_response({"id": file_id, "time": t_diff, "time_replication": t_diff_replication, "time_lead_total_work": t_diff}, 201)
 
 
 @app.route("/files_task1.2", methods=["POST"])
@@ -684,10 +690,16 @@ def add_files_task1_2() -> Response:
     # Create a REQ socket to send the request to the first node
     sock = context.socket(zmq.REQ)
     sock.connect(f"tcp://{first_node.address}:{first_node.port_store_data}")
+
+    t_lead_end: float = time.time()
+
     sock.send_multipart([msg_serialized])
 
     # Wait for the response
     received = sock.recv_multipart()
+
+    t_insert_into_db_start: float = time.time()
+
     try:
         response = protobuf_msgs.Message.FromString(received[0])
         # response = messages_pb2.DelegateStoreDataResponse.FromString(received[0])
@@ -746,11 +758,20 @@ def add_files_task1_2() -> Response:
         db.commit()
         logger.info(f"Inserted file with id {file_id} into database")
 
+        t_insert_into_db_end: float = time.time()
+
         t_end: float = time.time()
         logger.debug(f"Time to store file: {t_end - t_start}")
         t_diff: float = t_end - t_start
 
-        return make_response({"id": cursor.lastrowid, "time": t_diff}, 201)
+        time_replication: float = response.delegate_store_data_response.time_replication
+
+        return make_response({
+            "id": cursor.lastrowid,
+            "time": t_diff,
+            "time_replication": time_replication,
+            "time_lead_total_work": (t_lead_end - t_start) + (t_insert_into_db_end - t_insert_into_db_start),
+        }, 201)
     finally:
         sock.close()
 

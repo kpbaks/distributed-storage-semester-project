@@ -87,6 +87,7 @@ message GetFragmentsAndDecodeThemRequest
 message DelegateStoreDataResponse
 {
 	bool success = 1; // true if the file was successfully stored
+	double time_replication = 2;
 }
 
 enum MsgType
