@@ -1,10 +1,8 @@
-import fcntl
 import logging
 import os
 import random
 import socket
 import string
-import struct
 import subprocess
 import time
 from typing import Any, Iterable, List, Optional
@@ -25,7 +23,7 @@ def random_string(length: int = 8) -> str:
     return "".join(
         [
             random.SystemRandom().choice(string.ascii_letters + string.digits)
-            for n in range(length)
+            for _ in range(length)
         ]
     )
 
@@ -101,7 +99,7 @@ def elements_in_list_are_unique(lst: List[Any]) -> bool:
     return len(lst) == len(set(lst))
 
 
-def create_logger(name: str | None = None, level: int = logging.INFO) -> logging.Logger:
+def create_logger(name: Optional[str] = None, level: int = logging.INFO) -> logging.Logger:
     """
     Returns a logger with the given name and log level.
     """

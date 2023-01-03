@@ -1,19 +1,14 @@
 import argparse
 import uuid
-
-import atexit
-import logging
 import os
 import pathlib
 from pathlib import Path
-import random
 import shutil
-import string
 import sys
 import time
 import reedsolomon
 import zmq
-import copy # for deepcopy
+from typing import Optional
 
 import messages_pb2 as protobuf_msgs
 
@@ -354,7 +349,7 @@ def get_data_action(sock_rep_get_data: zmq.Socket) -> None:
         symbols = []
 
         # Extract the storage node, that matches this one            
-        fragment_uid_meant_for_this_storage_node: str | None = None
+        fragment_uid_meant_for_this_storage_node: Optional[str] = None
 
         for fragment_uid, storage_node in fragment_uids_to_storage_nodes.items():
             logger.debug(f"Checking if {storage_node.uid} is {NODE_UID}")

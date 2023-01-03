@@ -2,24 +2,19 @@ import argparse
 import atexit  # unregister scheduler at app exit
 import base64
 import io  # For sending binary data in a HTTP response
-import itertools as it
 import logging
-import math  # For cutting the file in half
 import os
 import random
 import sqlite3
-import string
-import sys
 import time  # For waiting a second for ZMQ connections
 import uuid
-from hashlib import sha256
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import List, Optional
 
 import zmq  # For ZMQ
 # from apscheduler import Task
-from apscheduler.schedulers.background import BackgroundScheduler
-# from apscheduler.schedulers.sync import Scheduler
-from apscheduler.triggers.interval import IntervalTrigger
+# from apscheduler.schedulers.background import BackgroundScheduler
+# # from apscheduler.schedulers.sync import Scheduler
+# from apscheduler.triggers.interval import IntervalTrigger
 # from apscheduler.schedulers.background import \
 #     BackgroundScheduler  # automated repair
 from flask import (Flask, Request, Response, g, make_response, redirect,

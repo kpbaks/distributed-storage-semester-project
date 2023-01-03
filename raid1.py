@@ -1,18 +1,13 @@
-import itertools as it
 import logging
 import math
 import os
 import random
 import sys
 import uuid
-from typing import List, Tuple
-
 import zmq
-
 import protobuf_msgs as protobuf_msgs
 from data_models.storage_id import StorageId
 from storage_providers.storage_provider import StorageProvider
-from utils import random_string, remove_duplicate_from_list
 
 
 class Raid1StorageProvider(StorageProvider):
