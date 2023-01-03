@@ -973,7 +973,7 @@ def add_files_task2_2() -> Response:
             logger.error(f"Unexpected response type: {response.type}")
             return make_response({"error": "Unexpected response type"}, 500)
 
-        logger.info(f"Received response: {response}")
+        # logger.info(f"Received response: {response}")
 
         fragment_uids_to_storage_nodes = response \
             .encode_and_forward_fragments_response \
