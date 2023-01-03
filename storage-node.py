@@ -514,23 +514,26 @@ def store_data_action() -> None:
 
             
             if len(nodes_to_forward_to) == 0:
-            # match nodes_to_forward_to:  
-                # case []:
-                t_replication_end: float = time.time()
-                t_replication: float = t_replication_end - t_replication_start
                 response = protobuf_msgs.Message(
                     type=protobuf_msgs.MsgType.DELEGATE_STORE_DATA_RESPONSE,
                     delegate_store_data_response=protobuf_msgs.DelegateStoreDataResponse(
                         success=success,
-                        time_replication=t_replication
+                        time_replication=-1 # Not defined so we set it to -1
                     )
                 )
+
                 response_serialized = response.SerializeToString()
                 sock_rep_store_data.send_multipart([response_serialized])
                 logger.info(f"Last node in the list, sending response back to client")
+                
             else:
-                head, *tail = nodes_to_forward_to 
-                # case [head, *tail]:
+                head, *tail = nodes_to_forward_to
+
+                first_node_contacted: bool = len(nodes_to_forward_to) == constants.TOTAL_NUMBER_OF_STORAGE_NODES
+
+                if first_node_contacted:
+                    t_replication_start: float = time.time()
+
                 # Create the message to forward
                 message_to_forward = protobuf_msgs.Message(
                     type=protobuf_msgs.MsgType.DELEGATE_STORE_DATA_REQUEST,
@@ -564,10 +567,18 @@ def store_data_action() -> None:
                         if delegate_store_data_response.success:
                             logger.info(f"Successfully delegated store file {delegate_store_data_request.file_uid} to node {head.uid}")
                             # Send the response to the client
+
+                            if first_node_contacted:
+                                time_replication = time.time() - t_replication_start
+                            else:
+                                # If not the first node contacted, then the time_replication is not defined, and we set it to -1
+                                time_replication = -1
+
                             response = protobuf_msgs.Message(
                                 type=protobuf_msgs.MsgType.DELEGATE_STORE_DATA_RESPONSE,
                                 delegate_store_data_response=protobuf_msgs.DelegateStoreDataResponse(
-                                    success=True
+                                    success=True,
+                                    time_replication=time_replication
                                 )
                             )
                             response_serialized = response.SerializeToString()

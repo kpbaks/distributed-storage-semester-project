@@ -765,6 +765,7 @@ def add_files_task1_2() -> Response:
         t_diff: float = t_end - t_start
 
         time_replication: float = response.delegate_store_data_response.time_replication
+        print(f"Time replication: {time_replication}")
 
         return make_response({
             "id": cursor.lastrowid,
