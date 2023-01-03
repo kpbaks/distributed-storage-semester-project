@@ -918,8 +918,8 @@ def add_files_task2_2() -> Response:
         file_id: int = cursor.lastrowid
 
         for fragment_uid, node in fragment_uids_to_storage_nodes.items():
-            print(f"fragment_uid: {fragment_uid}")
-            print(f"node: {node}")
+            # print(f"fragment_uid: {fragment_uid}")
+            # print(f"node: {node}")
 
             db.execute(
                 f"""

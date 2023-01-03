@@ -604,7 +604,7 @@ def store_data_action() -> None:
 
         socks = []
 
-        print(nodes_to_forward_to)
+        # print(nodes_to_forward_to)
 
         for f_name, f_data, storage_node in zip(fragment_names[1:], fragment_data[1:], nodes_to_forward_to):
             assert isinstance(f_name, str), f"Fragment name must be a string, but is {type(f_name)}"
