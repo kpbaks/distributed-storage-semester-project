@@ -174,3 +174,6 @@ storage-node*/
 
 # do not share kodo .so between different machines
 *.so
+
+# pyenv
+.python_version
