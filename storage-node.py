@@ -417,7 +417,7 @@ def get_data_action(sock_rep_get_data: zmq.Socket) -> None:
             type=protobuf_msgs.MsgType.GET_DATA_RESPONSE,
             get_data_response=protobuf_msgs.GetDataResponse(
                 success=True,
-                decoding_time=t_decoding_diff,
+                time_decoding=t_decoding_diff,
                 file_data=bytes(filedata_return)
             )
         )
