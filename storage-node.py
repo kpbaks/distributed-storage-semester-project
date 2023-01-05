@@ -228,24 +228,6 @@ def subscriber_action(subscriber: zmq.Socket, sender: zmq.Socket) -> None:
 
         sender.send_multipart([bytes(file_uid, 'utf-8'), f.read()])
 
-    
-    # # Try to load all fragments with this name
-    # # First frame is the filename
-    # frames = [bytes(file_uid, "utf-8")]
-    # # Subsequent frames will contain the chunks' data
-
-    # # iterate over all files in args.data_folder
-    # for i, file in enumerate(DATA_FOLDER.glob("*")):
-    #     logger.debug(f"Found file [{i}] {file.name}")
-    #     if file.is_file() and file.name == file_uid:
-    #         logger.info(f"Found chunk {file_uid}, sending it back")
-    #         frames.append(file.read_bytes())
-
-    # # Only send a result if at least one chunk was found
-    # if len(frames) > 1:
-    #     logger.info(f"Sending {len(frames) - 1} chunks back")
-    #     sender.send_multipart(frames)
-
 
 def nuke_storage_folder() -> None:
     if os.environ.get("DEBUG") is not None:
@@ -422,10 +404,12 @@ def get_data_action(sock_rep_get_data: zmq.Socket) -> None:
             # Close the socket
             sock.close()
 
-    
+        t_decoding_start: float = time.time()
         filedata_return: bytearray = reedsolomon.decode_file(
             symbols 
         )[:filesize]
+        t_decoding_end: float = time.time()
+        t_decoding_diff: float = t_decoding_end - t_decoding_start
 
 
         # Create the final response to the rest-client
@@ -433,6 +417,7 @@ def get_data_action(sock_rep_get_data: zmq.Socket) -> None:
             type=protobuf_msgs.MsgType.GET_DATA_RESPONSE,
             get_data_response=protobuf_msgs.GetDataResponse(
                 success=True,
+                decoding_time=t_decoding_diff,
                 file_data=bytes(filedata_return)
             )
         )
