@@ -371,7 +371,7 @@ def download_file_task2_1(file_id: int) -> Response:
 
     # Write time_rs_decode to log file
     with open("time_rs_decode.txt", "a") as f:
-        f.write(f"task2.1 {t_diff_rs}\n")
+        f.write(f"task2.1 {file_id} {t_diff_rs}\n")
 
     # return make_response({
     #     "filedata": base64.b64encode(filedata_reconstructed).decode("utf-8"),
@@ -379,7 +379,15 @@ def download_file_task2_1(file_id: int) -> Response:
     #     "time_rs_decode": t_diff_rs
     # })
 
-    return send_file(io.BytesIO(filedata_reconstructed), mimetype=file_metadata["content_type"])
+    # Send the file to the client and the time it took to decode the file
+    return make_response({
+        "filedata": base64.b64encode(filedata_reconstructed).decode("utf-8"),
+        "content_type": file_metadata["content_type"],
+        "time_rs_decode": t_diff_rs
+    })
+
+
+    # return send_file(io.BytesIO(filedata_reconstructed), mimetype=file_metadata["content_type"])
 
 
 @app.route("/files/<int:file_id>/task2.2", methods=["GET"])
@@ -468,11 +476,20 @@ def download_file_task2_2(file_id: int) -> Response:
     
     file_data = msg.get_data_response.file_data
     success = msg.get_data_response.success
+    time_decoding: float = msg.get_data_response.time_decoding
+
     if not success:
         logger.error(f"Error getting file data: {file_data}")
         return make_response({"message": "Error getting file data"}, 500)
     
-    return send_file(io.BytesIO(file_data), mimetype=file_metadata["content_type"])
+    # Return the file data and the time it took to decode the file
+    return make_response({
+        "filedata": base64.b64encode(file_data).decode("utf-8"),
+        "content_type": file_metadata["content_type"],
+        "time_rs_decode": time_decoding
+    })
+
+    # return send_file(io.BytesIO(file_data), mimetype=file_metadata["content_type"])
 
 
 

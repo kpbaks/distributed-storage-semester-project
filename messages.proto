@@ -43,6 +43,7 @@ message GetDataResponse
 {
 	bool success = 1; // true if the file was successfully retrieved
 	bytes file_data = 2; // The file data
+	double time_decoding = 3; // Optional only needed for GET in task2.2 benchmarking
 }
 
 message StoreDataRequest
